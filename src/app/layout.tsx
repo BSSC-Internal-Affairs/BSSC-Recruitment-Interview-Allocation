@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./participants.css";
 export const metadata: Metadata = {
   title: "BSSC · Find your interview moment",
   description:

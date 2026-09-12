@@ -16,3 +16,8 @@ export const formatTimestamp = (date: string) =>
   }).format(new Date(date));
 export const isFutureSlot = (date: string, time: string) =>
   new Date(`${date}T${time}:00+07:00`).getTime() > Date.now();
+export const formatWeekday = (date: string) =>
+  new Intl.DateTimeFormat("en-GB", {
+    weekday: "long",
+    timeZone: "Asia/Jakarta",
+  }).format(new Date(`${date}T00:00:00+07:00`));

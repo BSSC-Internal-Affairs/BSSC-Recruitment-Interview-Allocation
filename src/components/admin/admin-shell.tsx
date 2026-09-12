@@ -7,6 +7,7 @@ import {
   SlidersHorizontal,
   ExternalLink,
   LogOut,
+  Users,
 } from "lucide-react";
 import { Brand } from "../brand";
 import { request } from "@/services/api";
@@ -22,6 +23,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <div className="sidebar-label">RECRUITMENT WORKSPACE</div>
         <nav>
           {[
+            { href: "/admin/participants", label: "Participants", icon: Users },
             { href: "/admin", label: "Responses", icon: ClipboardList },
             {
               href: "/admin/schedules",

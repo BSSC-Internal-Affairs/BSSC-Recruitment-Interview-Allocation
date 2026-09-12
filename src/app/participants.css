@@ -1,0 +1,230 @@
+/* Participant access and response filtering share the existing four-color theme. */
+.table-scroll {
+  position: relative;
+}
+.invitation-gate {
+  padding: 50px 35px;
+  text-align: center;
+}
+.invitation-gate .eyebrow {
+  justify-content: center;
+  margin-bottom: 15px;
+}
+.invitation-gate h2 {
+  font-size: 30px;
+}
+.invitation-gate > p {
+  color: var(--muted);
+  line-height: 1.8;
+}
+.invitation-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 30px 0 0;
+  font-size: 12px;
+}
+.invitation-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 24px;
+  background: var(--blue-soft);
+  border: 1px solid #c5ddeb;
+  border-radius: 8px;
+  font-size: 11px;
+  color: #315f7f;
+}
+.invitation-banner svg {
+  flex: none;
+}
+.invitation-banner small {
+  display: block;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+.participant-create {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: end;
+  gap: 16px;
+}
+.participant-create .field {
+  margin: 0;
+}
+.participant-create .btn {
+  min-height: 44px;
+}
+.participant-search {
+  display: flex;
+  gap: 12px;
+}
+.participant-search > select {
+  width: 180px;
+  font-size: 11px;
+  padding: 9px;
+}
+.participant-email {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
+  font-size: 11px;
+}
+.participants-table tbody tr {
+  cursor: default;
+}
+.participant-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.participants-table .btn {
+  padding: 8px 12px;
+}
+.pending-badge {
+  color: #855715;
+  background: var(--orange-soft);
+}
+.responded-badge {
+  color: #526323;
+  background: var(--green-soft);
+}
+.disabled-badge {
+  color: #78717f;
+  background: #eeedf0;
+}
+.invitation-share {
+  border-left: 4px solid var(--blue);
+}
+.invitation-share p {
+  font-size: 12px;
+  color: var(--muted);
+}
+.copy-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.copy-link input {
+  min-width: 0;
+  font-size: 12px;
+}
+.copy-link .btn {
+  flex: none;
+}
+.sidebar nav a[href="/admin/participants"].active {
+  color: #526323;
+  background: var(--green-soft);
+}
+.sidebar nav a[href="/admin/participants"] svg {
+  color: #859b37;
+}
+.response-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 0 23px 23px;
+}
+.response-filters label {
+  flex: 1;
+  min-width: 140px;
+}
+.response-filters label > span {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: #595363;
+  font-weight: 600;
+}
+.response-filters select {
+  font-size: 11px;
+  padding: 10px;
+}
+.response-weekday {
+  display: block;
+  color: #745197;
+  font-size: 11px;
+  margin-bottom: 3px;
+}
+.interview-time-badge {
+  display: inline-flex;
+  color: #315f7f;
+  background: var(--blue-soft);
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+}
+.response-loading {
+  padding: 16px 23px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.response-pagination {
+  padding: 18px 23px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+.response-pagination > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.response-pagination .btn {
+  padding: 8px 12px;
+}
+@media (max-width: 1150px) {
+  .participant-create {
+    grid-template-columns: 1fr 1fr;
+  }
+  .participant-create .btn {
+    grid-column: 1/-1;
+    justify-self: start;
+  }
+  .participant-search {
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 520px) {
+  .participant-create {
+    grid-template-columns: 1fr;
+  }
+  .participant-create .btn {
+    justify-self: stretch;
+  }
+  .participant-search,
+  .participant-search .search,
+  .participant-search > select {
+    width: 100%;
+  }
+  .copy-link {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .response-filters {
+    padding: 0 18px 18px;
+  }
+  .response-filters label {
+    min-width: calc(50% - 12px);
+  }
+  .response-pagination {
+    flex-direction: column;
+    padding: 16px;
+  }
+  .response-pagination > div {
+    gap: 8px;
+  }
+  .invitation-gate {
+    padding: 35px 22px;
+  }
+  .invitation-gate h2 {
+    font-size: 26px;
+  }
+}

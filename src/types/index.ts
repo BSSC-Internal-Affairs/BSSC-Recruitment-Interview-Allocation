@@ -40,6 +40,9 @@ export interface SubmissionSummary {
   formId: string;
   fullName: string;
   submittedAt: string;
+  date: string;
+  startTime: string;
+  endTime: string;
 }
 export interface SubmissionDetail extends SubmissionSummary {
   date: string;
@@ -52,4 +55,44 @@ export interface Booking {
   date: string;
   startTime: string;
   endTime: string;
+}
+export interface Participant {
+  id: string;
+  fullName: string;
+  email: string;
+  disabled: boolean;
+  createdAt: string;
+  formId: string | null;
+  submissionId: string | null;
+  submittedAt: string | null;
+}
+export interface ParticipantInvitation {
+  participant: Participant;
+  token: string;
+}
+export interface ParticipantAccess {
+  fullName: string;
+  email: string;
+  booking: Booking | null;
+}
+export interface ResponseFilters {
+  q?: string;
+  date?: string;
+  weekday?: string;
+  time?: string;
+  sort?:
+    | "submitted_desc"
+    | "submitted_asc"
+    | "interview_asc"
+    | "interview_desc"
+    | "name_asc";
+  page?: number;
+}
+export interface ResponseList {
+  items: SubmissionSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+  dates: string[];
+  times: string[];
 }

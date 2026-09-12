@@ -3,7 +3,11 @@ import type {
   FormConfig,
   InterviewDate,
   SubmissionDetail,
-  SubmissionSummary,
+  ResponseFilters,
+  ResponseList,
+  Participant,
+  ParticipantAccess,
+  ParticipantInvitation,
 } from "@/types";
 export class RequestError extends Error {
   constructor(
@@ -38,7 +42,27 @@ export const api = {
   form: () => request<FormConfig>("form"),
   schedules: () => request<InterviewDate[]>("schedules"),
   submit: (body: unknown) => request<Booking>("submissions", "POST", body),
-  responses: () => request<SubmissionSummary[]>("admin/submissions"),
+  responses: (filters: ResponseFilters = {}) => {
+    const query = new URLSearchParams(
+      Object.entries(filters)
+        .filter(([, value]) => value !== undefined && value !== "")
+        .map(([key, value]) => [key, String(value)]),
+    );
+    return request<ResponseList>(`admin/submissions?${query}`);
+  },
+  participants: () => request<Participant[]>("admin/participants"),
+  createParticipant: (body: { fullName: string; email: string }) =>
+    request<ParticipantInvitation>("admin/participants", "POST", body),
+  replaceInvitation: (id: string) =>
+    request<ParticipantInvitation>(
+      `admin/participants/${id}/invitation`,
+      "POST",
+      {},
+    ),
+  setParticipantDisabled: (id: string, disabled: boolean) =>
+    request<Participant>(`admin/participants/${id}`, "PUT", { disabled }),
+  verifyInvitation: (token: string) =>
+    request<ParticipantAccess>("invitations/verify", "POST", { token }),
   response: (id: string) =>
     request<SubmissionDetail>(`admin/submissions/${id}`),
   saveForm: (body: FormConfig) =>

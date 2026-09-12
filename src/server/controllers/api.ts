@@ -7,11 +7,15 @@ import { ApiError } from "../errors";
 import { login, requireAdmin, cookieName } from "../auth";
 import { getConfig, saveConfig } from "../repositories/config";
 import { getSchedules, slotValues } from "../repositories/schedules";
+import { submit, getSubmission } from "../services/submissions";
+import { listSubmissions } from "../services/responses";
 import {
-  submit,
-  listSubmissions,
-  getSubmission,
-} from "../services/submissions";
+  createParticipant,
+  listParticipants,
+  replaceInvitation,
+  setParticipantDisabled,
+  verifyInvitation,
+} from "../services/participants";
 import { configSchema, dateSchema, slotSchema } from "../validators";
 export async function handle(
   request: NextRequest,
@@ -48,6 +52,12 @@ export async function handle(
       return ok(await getSchedules());
     if (route === "submissions" && method === "POST")
       return ok(await submit(await body()), 201);
+    if (route === "invitations/verify" && method === "POST") {
+      const input = z
+        .object({ token: z.string().max(256) })
+        .parse(await body());
+      return ok(await verifyInvitation(input.token));
+    }
     if (route === "admin/login" && method === "POST") {
       const b = z
         .object({
@@ -60,12 +70,33 @@ export async function handle(
     }
     if (path[0] !== "admin") throw new ApiError(404, "Endpoint not found.");
     await requireAdmin();
+    if (route === "admin/participants") {
+      if (method === "GET") return ok(await listParticipants());
+      if (method === "POST")
+        return ok(await createParticipant(await body()), 201);
+    }
+    if (path[1] === "participants" && path.length === 3 && method === "PUT") {
+      const input = z.object({ disabled: z.boolean() }).parse(await body());
+      return ok(
+        await setParticipantDisabled(z.uuid().parse(path[2]), input.disabled),
+      );
+    }
+    if (
+      path[1] === "participants" &&
+      path.length === 4 &&
+      path[3] === "invitation" &&
+      method === "POST"
+    ) {
+      return ok(await replaceInvitation(z.uuid().parse(path[2])));
+    }
     if (route === "admin/logout" && method === "POST") {
       (await cookies()).delete(cookieName);
       return ok({ success: true });
     }
     if (route === "admin/submissions" && method === "GET")
-      return ok(await listSubmissions());
+      return ok(
+        await listSubmissions(Object.fromEntries(request.nextUrl.searchParams)),
+      );
     if (path[1] === "submissions" && path.length === 3 && method === "GET")
       return ok(await getSubmission(z.uuid().parse(path[2])));
     if (route === "admin/form") {

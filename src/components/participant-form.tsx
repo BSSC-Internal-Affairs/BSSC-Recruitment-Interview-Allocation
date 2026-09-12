@@ -13,6 +13,8 @@ import { FormIntro } from "./form-intro";
 import { ScheduleSelector } from "./schedule-selector";
 import { Brand } from "./brand";
 import { DynamicField } from "./dynamic-field";
+import { InvitationGate } from "./invitation-gate";
+import { useInvitation } from "@/hooks/use-invitation";
 import { api, RequestError } from "@/services/api";
 import { useSchedules } from "@/hooks/use-schedules";
 import { validateAnswers } from "@/server/validators";
@@ -31,7 +33,13 @@ export function ParticipantForm() {
   const key = useRef(""),
     submitting = useRef(false),
     heading = useRef<HTMLHeadingElement>(null);
-  const { dates, error: scheduleError, loading, refresh } = useSchedules();
+  const invitation = useInvitation();
+  const {
+    dates,
+    error: scheduleError,
+    loading,
+    refresh,
+  } = useSchedules(!!invitation.access && !booking);
   const load = () =>
     api
       .form()
@@ -40,6 +48,30 @@ export function ParticipantForm() {
   useEffect(() => {
     void load();
   }, []);
+  useEffect(() => {
+    setAnswers({});
+    setStep(1);
+    setBooking(null);
+    setError("");
+    setErrors({});
+    key.current = "";
+  }, [invitation.token]);
+  useEffect(() => {
+    if (!invitation.access) return;
+    if (invitation.access.booking) setBooking(invitation.access.booking);
+    if (config) {
+      const email = config.fields.find((field) => field.type === "email");
+      setAnswers((previous) => ({
+        ...previous,
+        ...(config.nameFieldId && previous[config.nameFieldId] === undefined
+          ? { [config.nameFieldId]: invitation.access!.fullName }
+          : {}),
+        ...(email && previous[email.id] === undefined
+          ? { [email.id]: invitation.access!.email }
+          : {}),
+      }));
+    }
+  }, [invitation.access, config]);
   const selectedDate = dates.find((d) => d.id === dateId),
     selectedSlot = selectedDate?.slots.find((s) => s.id === slotId);
   const canBook =
@@ -52,7 +84,7 @@ export function ParticipantForm() {
   }, [step, booking]);
   async function advance(event: React.FormEvent) {
     event.preventDefault();
-    if (!config || submitting.current) return;
+    if (!config || !invitation.access || submitting.current) return;
     setError("");
     const issues = validateAnswers(config.fields, answers);
     setErrors(issues);
@@ -75,12 +107,18 @@ export function ParticipantForm() {
     if (!key.current) key.current = crypto.randomUUID();
     try {
       setBooking(
-        await api.submit({ answers, slotId, idempotencyKey: key.current }),
+        await api.submit({
+          answers,
+          slotId,
+          idempotencyKey: key.current,
+          invitationToken: invitation.token,
+        }),
       );
       void refresh();
     } catch (e) {
       setError((e as Error).message);
       if (e instanceof RequestError) {
+        if (e.status === 403) void invitation.refresh();
         if (e.fields) {
           setErrors(e.fields);
           setStep(1);
@@ -132,7 +170,13 @@ export function ParticipantForm() {
       <main className="public-main">
         <FormIntro config={config} />
         <section className="form-card">
-          {booking ? (
+          {!invitation.access ? (
+            <InvitationGate
+              checking={invitation.checking}
+              error={invitation.error}
+              onRetry={() => void invitation.refresh()}
+            />
+          ) : booking ? (
             <div className="confirmation">
               <span className="success-icon">
                 <CheckCircle2 size={38} />
@@ -179,6 +223,15 @@ export function ParticipantForm() {
                 </div>
               </div>
               <div className="form-body">
+                <div className="invitation-banner">
+                  <ShieldCheck size={17} />
+                  <span>
+                    Invited as <strong>{invitation.access.fullName}</strong>
+                    <small>
+                      {invitation.access.email} · One response per participant
+                    </small>
+                  </span>
+                </div>
                 <div className="section-kicker">STEP {step} OF 2</div>
                 <h2 ref={heading} tabIndex={-1}>
                   {step === 1

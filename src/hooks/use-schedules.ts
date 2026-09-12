@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/services/api";
 import type { InterviewDate } from "@/types";
-export function useSchedules() {
+export function useSchedules(enabled = true) {
   const [dates, setDates] = useState<InterviewDate[]>([]),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true);
@@ -17,6 +17,7 @@ export function useSchedules() {
     }
   }, []);
   useEffect(() => {
+    if (!enabled) return;
     void refresh();
     const timer = setInterval(refresh, 10000);
     const focus = () => void refresh();
@@ -25,6 +26,6 @@ export function useSchedules() {
       clearInterval(timer);
       window.removeEventListener("focus", focus);
     };
-  }, [refresh]);
+  }, [refresh, enabled]);
   return { dates, setDates, error, loading, refresh };
 }

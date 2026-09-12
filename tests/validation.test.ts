@@ -4,6 +4,9 @@ import {
   configSchema,
   slotSchema,
   validateAnswers,
+  participantSchema,
+  submissionSchema,
+  responseFiltersSchema,
 } from "../src/server/validators";
 import type { FormField } from "../src/types";
 const id = "44238d62-8ec1-45c0-a712-c9ab07ad860d";
@@ -14,6 +17,12 @@ const field = (type: FormField["type"], required = true): FormField => ({
   required,
   order: 0,
   options: ["A", "B"],
+});
+test('participant identities normalize email and anonymous submissions require an invitation',()=>{
+  assert.equal(participantSchema.parse({fullName:' Test ',email:' Person@Example.com '}).email,'person@example.com');
+  assert.equal(submissionSchema.safeParse({slotId:id,idempotencyKey:id,answers:{}}).success,false);
+  assert.equal(responseFiltersSchema.safeParse({weekday:'7'}).success,false);
+  assert.equal(responseFiltersSchema.parse({weekday:'0',page:'2'}).weekday,0);
 });
 test("required fields reject whitespace; optional fields can be blank", () => {
   assert.ok(validateAnswers([field("text")], { [id]: "  " })[id]);

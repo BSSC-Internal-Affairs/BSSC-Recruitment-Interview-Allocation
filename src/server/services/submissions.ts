@@ -3,25 +3,39 @@ import { transaction, pool } from "../db";
 import { getConfig } from "../repositories/config";
 import { submissionSchema, validateAnswers } from "../validators";
 import { ApiError } from "../errors";
-import type { Booking, SubmissionDetail, SubmissionSummary } from "../../types";
+import type { Booking, SubmissionDetail } from "../../types";
+import { hashInvitation } from "./participants";
 const formId = (n: string) => `INT${n.padStart(3, "0")}`;
 export async function submit(input: unknown): Promise<Booking> {
   const data = submissionSchema.parse(input);
-  const hash = createHash("sha256")
-    .update(
-      JSON.stringify({
-        slot: data.slotId,
-        answers: Object.entries(data.answers).sort(([a], [b]) =>
-          a.localeCompare(b),
-        ),
-      }),
-    )
-    .digest("hex");
   return transaction(async (db) => {
-    // Serialize retries of the same request before checking its result.
+    // Lock this identity through the entire reservation. Different request keys,
+    // slots, browsers, or changed answers cannot create a second response.
     await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
       data.idempotencyKey,
     ]);
+    const {
+      rows: [participant],
+    } = await db.query(
+      "SELECT id,email,disabled FROM participants WHERE invitation_token_hash=$1 FOR UPDATE",
+      [hashInvitation(data.invitationToken)],
+    );
+    if (!participant || participant.disabled)
+      throw new ApiError(
+        403,
+        "A valid private invitation is required. Please contact the committee.",
+      );
+    const hash = createHash("sha256")
+      .update(
+        JSON.stringify({
+          participantId: participant.id,
+          slot: data.slotId,
+          answers: Object.entries(data.answers).sort(([a], [b]) =>
+            a.localeCompare(b),
+          ),
+        }),
+      )
+      .digest("hex");
     const {
       rows: [existing],
     } = await db.query(
@@ -41,12 +55,30 @@ export async function submit(input: unknown): Promise<Booking> {
         endTime: existing.endTime,
       };
     }
+    const prior = await db.query(
+      "SELECT id FROM submissions WHERE participant_id=$1 OR lower(btrim(email_key))=$2 LIMIT 1",
+      [participant.id, participant.email],
+    );
+    if (prior.rowCount)
+      throw new ApiError(
+        409,
+        "You have already submitted your response. Please contact the committee for changes.",
+      );
     // Coordinate configuration edits with validation and answer snapshots.
     await db.query("SELECT id FROM form_configuration WHERE id=1 FOR SHARE");
     const config = await getConfig(db);
     if (!config.fields.length || !config.nameFieldId)
       throw new ApiError(409, "Registration is not open yet.");
     const errors = validateAnswers(config.fields, data.answers);
+    const emailField = config.fields.find((field) => field.type === "email");
+    if (
+      emailField &&
+      (data.answers[emailField.id] ?? "").trim().toLowerCase() !==
+        participant.email
+    ) {
+      errors[emailField.id] =
+        "Use the email address registered on your invitation.";
+    }
     if (Object.keys(errors).length)
       throw new ApiError(422, "Please check your answers.", errors);
     // Lock the parent first, matching schedule edits/deletes, then claim capacity atomically.
@@ -78,23 +110,21 @@ export async function submit(input: unknown): Promise<Booking> {
         "That time is no longer available. Please choose another.",
       );
     const id = randomUUID();
-    const email = config.fields.find(
-      (f) => f.type === "email" && data.answers[f.id]?.trim(),
-    );
     const {
       rows: [saved],
     } = await db.query(
-      "INSERT INTO submissions(id,interview_slot_id,full_name,idempotency_key,request_hash,email_key,interview_date,start_time,end_time) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING number::text",
+      "INSERT INTO submissions(id,interview_slot_id,full_name,idempotency_key,request_hash,email_key,interview_date,start_time,end_time,participant_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING number::text",
       [
         id,
         data.slotId,
         data.answers[config.nameFieldId].trim(),
         data.idempotencyKey,
         hash,
-        email ? data.answers[email.id].trim().toLowerCase() : null,
+        participant.email,
         date.date,
         slot.startTime,
         slot.endTime,
+        participant.id,
       ],
     );
     for (const f of config.fields)
@@ -104,12 +134,6 @@ export async function submit(input: unknown): Promise<Booking> {
       );
     return { formId: formId(saved.number), date: date.date, ...slot };
   });
-}
-export async function listSubmissions(): Promise<SubmissionSummary[]> {
-  const { rows } = await pool.query(
-    'SELECT id,number::text,full_name AS "fullName",submitted_at AS "submittedAt" FROM submissions ORDER BY submitted_at DESC LIMIT 1000',
-  );
-  return rows.map((r) => ({ ...r, formId: formId(r.number) }));
 }
 export async function getSubmission(id: string): Promise<SubmissionDetail> {
   const {

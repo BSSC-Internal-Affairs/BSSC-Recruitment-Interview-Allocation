@@ -3,11 +3,20 @@ import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import type { FormConfig, InterviewDate } from "../../src/types";
 // Uses the local app and removes only this run's records after verification.
-test("public booking, protected admin CRUD, full slots, snapshots and responsive layout", async ({
+test("invitation booking, protected admin CRUD, response filters and responsive layout", async ({
   page,
   request,
 }) => {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  if (
+    !["localhost", "127.0.0.1", "[::1]"].includes(
+      new URL(process.env.DATABASE_URL!).hostname,
+    )
+  )
+    throw new Error("Browser tests require the local database.");
+  const participantIds: string[] = [];
+  const email = `browser-${randomUUID()}@example.com`;
+  let invitationToken = "";
   let dateId = "",
     extraDateId = "",
     original: FormConfig | undefined;
@@ -18,13 +27,15 @@ test("public booking, protected admin CRUD, full slots, snapshots and responsive
     const redirect = await request.get("/admin", { maxRedirects: 0 });
     expect(redirect.status()).toBe(307);
     await page.goto("/");
-    await expect(page.getByLabel("Full name", { exact: false })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Your invitation starts here." }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Full name", { exact: false })).toHaveCount(0);
+    expect((await request.get("/api/admin/participants")).status()).toBe(401);
     await page.screenshot({
       path: ".local/public-desktop.png",
       fullPage: true,
     });
-    await page.getByRole("button", { name: "Choose interview time" }).click();
-    await expect(page.getByText("Full name is required.")).toBeVisible();
     await page.goto("/admin/login");
     await page.getByLabel("Username").fill(process.env.ADMIN_USERNAME!);
     await page
@@ -35,6 +46,39 @@ test("public booking, protected admin CRUD, full slots, snapshots and responsive
       page.getByRole("heading", { name: "Meet your applicants." }),
     ).toBeVisible();
     const admin = page.request;
+    await page.getByRole("link", { name: "Participants", exact: true }).click();
+    await page
+      .getByLabel("Full name", { exact: true })
+      .fill("Browser Test Applicant");
+    await page.getByLabel("Email address", { exact: true }).fill(email);
+    const createdResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/admin/participants") &&
+        response.request().method() === "POST",
+    );
+    await page
+      .getByRole("button", { name: "Register participant", exact: true })
+      .click();
+    const created = (await (await createdResponse).json()).data;
+    participantIds.push(created.participant.id);
+    invitationToken = created.token;
+    await expect(page.getByLabel("Private invitation link")).toHaveValue(
+      new RegExp(`#invite=${invitationToken}$`),
+    );
+    await expect(
+      page.getByText("Awaiting response", { exact: true }).last(),
+    ).toBeVisible();
+    expect(
+      (
+        await admin.post("/api/admin/participants", {
+          data: { fullName: "Again", email: email.toUpperCase() },
+        })
+      ).status(),
+    ).toBe(409);
+    await page.screenshot({
+      path: ".local/participants-desktop.png",
+      fullPage: true,
+    });
     original = (await (await admin.get("/api/admin/form")).json()).data;
     const crossOrigin = await admin.post("/api/admin/dates", {
       headers: { Origin: "https://invalid.example" },
@@ -85,12 +129,14 @@ test("public booking, protected admin CRUD, full slots, snapshots and responsive
       path: ".local/admin-configuration.png",
       fullPage: true,
     });
-    await page.goto("/");
+    await page.goto(`/#invite=${invitationToken}`);
     await expect(page.getByLabel("Favorite activity")).toBeVisible();
+    await expect(
+      page.getByLabel("Email address", { exact: false }),
+    ).toHaveValue(email);
     await page
       .getByLabel("Full name", { exact: false })
       .fill("Browser Test Applicant");
-    const email = `browser-${randomUUID()}@example.com`;
     await page.getByLabel("Email address", { exact: false }).fill(email);
     await page
       .getByLabel("Phone number", { exact: false })
@@ -144,6 +190,31 @@ test("public booking, protected admin CRUD, full slots, snapshots and responsive
       ).status(),
     ).toBe(409);
     await page.goto("/admin");
+    await page
+      .getByRole("combobox", { name: "Interview date", exact: true })
+      .selectOption("2098-09-21");
+    await page
+      .getByRole("combobox", { name: "Start time · WIB", exact: true })
+      .selectOption("09:00");
+    await page
+      .getByRole("combobox", { name: "Day of week", exact: true })
+      .selectOption(String(new Date("2098-09-21T00:00:00Z").getUTCDay()));
+    await page
+      .getByRole("combobox", { name: "Sort by", exact: true })
+      .selectOption("interview_asc");
+    await expect(
+      page.getByRole("button", { name: "Refresh responses" }),
+    ).toBeEnabled();
+    await expect(
+      page.getByRole("cell", { name: "09:00 – 09:30", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: "Browser Test Applicant", exact: true }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: ".local/responses-filters.png",
+      fullPage: true,
+    });
     await page
       .getByRole("cell", { name: "Browser Test Applicant", exact: true })
       .click();
@@ -199,7 +270,16 @@ test("public booking, protected admin CRUD, full slots, snapshots and responsive
     ).toBe(200);
     extraDateId = "";
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/");
+    const secondEmail = `full-${randomUUID()}@example.com`;
+    const second = (
+      await (
+        await admin.post("/api/admin/participants", {
+          data: { fullName: "Full slot test", email: secondEmail },
+        })
+      ).json()
+    ).data;
+    participantIds.push(second.participant.id);
+    await page.goto(`/#invite=${second.token}`);
     await expect(page.getByLabel("Full name", { exact: false })).toBeVisible();
     expect(
       await page.evaluate(
@@ -213,7 +293,7 @@ test("public booking, protected admin CRUD, full slots, snapshots and responsive
       config.fields.map((f) => [
         f.id,
         f.type === "email"
-          ? `full-${randomUUID()}@example.com`
+          ? secondEmail
           : f.type === "tel"
             ? "+6281234567890"
             : f.type === "select"
@@ -224,14 +304,17 @@ test("public booking, protected admin CRUD, full slots, snapshots and responsive
     expect(
       (
         await request.post("/api/submissions", {
-          data: { slotId: slot.id, idempotencyKey: randomUUID(), answers },
+          data: {
+            slotId: slot.id,
+            idempotencyKey: randomUUID(),
+            answers,
+            invitationToken: second.token,
+          },
         })
       ).status(),
     ).toBe(409);
     await page.getByLabel("Full name", { exact: false }).fill("Full slot test");
-    await page
-      .getByLabel("Email address", { exact: false })
-      .fill(`full-${randomUUID()}@example.com`);
+    await page.getByLabel("Email address", { exact: false }).fill(secondEmail);
     await page
       .getByLabel("Phone number", { exact: false })
       .fill("+6281234567890");
@@ -248,8 +331,71 @@ test("public booking, protected admin CRUD, full slots, snapshots and responsive
       path: ".local/schedule-mobile-full.png",
       fullPage: true,
     });
+    // Disable and replacement controls invalidate access even for an open form.
+    expect(
+      (
+        await admin.put(`/api/admin/participants/${second.participant.id}`, {
+          data: { disabled: true },
+        })
+      ).status(),
+    ).toBe(200);
+    expect(
+      (
+        await request.post("/api/invitations/verify", {
+          data: { token: second.token },
+        })
+      ).status(),
+    ).toBe(403);
+    expect(
+      (
+        await admin.put(`/api/admin/participants/${second.participant.id}`, {
+          data: { disabled: false },
+        })
+      ).status(),
+    ).toBe(200);
+    const replaced = (
+      await (
+        await admin.post(
+          `/api/admin/participants/${second.participant.id}/invitation`,
+          { data: {} },
+        )
+      ).json()
+    ).data;
+    expect(
+      (
+        await request.post("/api/invitations/verify", {
+          data: { token: second.token },
+        })
+      ).status(),
+    ).toBe(403);
+    expect(
+      (
+        await request.post("/api/invitations/verify", {
+          data: { token: replaced.token },
+        })
+      ).status(),
+    ).toBe(200);
+    await page.goto(`/#invite=${invitationToken}`);
+    await expect(
+      page.getByRole("heading", { name: "See you at your interview!" }),
+    ).toBeVisible();
+    await page.goto("/admin/participants");
+    await page.getByLabel("Search participants").fill(email);
+    await expect(
+      page.getByText("Responded", { exact: true }).last(),
+    ).toBeVisible();
+    await page.screenshot({
+      path: ".local/participants-mobile.png",
+      fullPage: true,
+    });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
     expect(errors).toEqual([]);
   } finally {
+    test.setTimeout(test.info().timeout + 15000);
     if (original) await page.request.put("/api/admin/form", { data: original });
     if (dateId) {
       await pool.query(
@@ -261,6 +407,10 @@ test("public booking, protected admin CRUD, full slots, snapshots and responsive
     if (extraDateId)
       await pool.query("DELETE FROM interview_dates WHERE id=$1", [
         extraDateId,
+      ]);
+    if (participantIds.length)
+      await pool.query("DELETE FROM participants WHERE id=ANY($1::uuid[])", [
+        participantIds,
       ]);
     await pool.end();
   }

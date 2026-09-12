@@ -48,9 +48,35 @@ export const slotSchema = z
     message: "End time must be after start time.",
   });
 export const submissionSchema = z.object({
+  invitationToken: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/, "Open your private invitation link to register."),
   slotId: z.uuid(),
   idempotencyKey: z.uuid(),
   answers: z.record(z.string(), z.string().max(4000)),
+});
+export const participantSchema = z.object({
+  fullName: z.string().trim().min(1, "Full name is required.").max(200),
+  email: z.string().trim().toLowerCase().email().max(254),
+});
+export const responseFiltersSchema = z.object({
+  q: z.string().trim().max(200).default(""),
+  date: z.iso.date().optional(),
+  weekday: z.coerce.number().int().min(0).max(6).optional(),
+  time: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+    .optional(),
+  sort: z
+    .enum([
+      "submitted_desc",
+      "submitted_asc",
+      "interview_asc",
+      "interview_desc",
+      "name_asc",
+    ])
+    .default("submitted_desc"),
+  page: z.coerce.number().int().min(1).max(1000000).default(1),
 });
 export function validateAnswers(
   fields: FormField[],
