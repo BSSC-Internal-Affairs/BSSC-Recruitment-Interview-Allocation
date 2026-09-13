@@ -8,6 +8,15 @@ await transaction(async (client) => {
 for (const file of (await readdir("db"))
   .filter((file) => /^\d+_.*\.sql$/.test(file) && file !== "001_initial.sql")
   .sort()) {
+  // 002 uses columns removed by 003. An upgraded database must not rerun it.
+  if (file === "002_participants.sql") {
+    const {
+      rows: [state],
+    } = await pool.query(
+      "SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('participants') AND attname='nim' AND NOT attisdropped) AS upgraded",
+    );
+    if (state.upgraded) continue;
+  }
   await pool.query(await readFile(`db/${file}`, "utf8"));
 }
 console.log("Database migration complete.");

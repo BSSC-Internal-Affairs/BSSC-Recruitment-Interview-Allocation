@@ -4,7 +4,6 @@ import { getConfig } from "../repositories/config";
 import { submissionSchema, validateAnswers } from "../validators";
 import { ApiError } from "../errors";
 import type { Booking, SubmissionDetail } from "../../types";
-import { hashInvitation } from "./participants";
 const formId = (n: string) => `INT${n.padStart(3, "0")}`;
 export async function submit(input: unknown): Promise<Booking> {
   const data = submissionSchema.parse(input);
@@ -17,18 +16,20 @@ export async function submit(input: unknown): Promise<Booking> {
     const {
       rows: [participant],
     } = await db.query(
-      "SELECT id,email,disabled FROM participants WHERE invitation_token_hash=$1 FOR UPDATE",
-      [hashInvitation(data.invitationToken)],
+      'SELECT id,nim,full_name AS "fullName" FROM participants WHERE nim=$1 FOR UPDATE',
+      [data.nim],
     );
-    if (!participant || participant.disabled)
+    if (!participant)
       throw new ApiError(
-        403,
-        "A valid private invitation is required. Please contact the committee.",
+        422,
+        "Your NIM is not registered for this interview.",
+        { nim: "Your NIM is not registered for this interview." },
       );
     const hash = createHash("sha256")
       .update(
         JSON.stringify({
           participantId: participant.id,
+          nim: data.nim,
           slot: data.slotId,
           answers: Object.entries(data.answers).sort(([a], [b]) =>
             a.localeCompare(b),
@@ -56,8 +57,8 @@ export async function submit(input: unknown): Promise<Booking> {
       };
     }
     const prior = await db.query(
-      "SELECT id FROM submissions WHERE participant_id=$1 OR lower(btrim(email_key))=$2 LIMIT 1",
-      [participant.id, participant.email],
+      "SELECT id FROM submissions WHERE participant_id=$1 LIMIT 1",
+      [participant.id],
     );
     if (prior.rowCount)
       throw new ApiError(
@@ -72,13 +73,11 @@ export async function submit(input: unknown): Promise<Booking> {
     const errors = validateAnswers(config.fields, data.answers);
     const emailField = config.fields.find((field) => field.type === "email");
     if (
-      emailField &&
-      (data.answers[emailField.id] ?? "").trim().toLowerCase() !==
-        participant.email
-    ) {
-      errors[emailField.id] =
-        "Use the email address registered on your invitation.";
-    }
+      config.nimFieldId &&
+      (data.answers[config.nimFieldId] ?? "").trim() !== data.nim
+    )
+      errors[config.nimFieldId] =
+        "Use the same NIM throughout your submission.";
     if (Object.keys(errors).length)
       throw new ApiError(422, "Please check your answers.", errors);
     // Lock the parent first, matching schedule edits/deletes, then claim capacity atomically.
@@ -117,10 +116,12 @@ export async function submit(input: unknown): Promise<Booking> {
       [
         id,
         data.slotId,
-        data.answers[config.nameFieldId].trim(),
+        participant.fullName,
         data.idempotencyKey,
         hash,
-        participant.email,
+        emailField
+          ? (data.answers[emailField.id] ?? "").trim().toLowerCase() || null
+          : null,
         date.date,
         slot.startTime,
         slot.endTime,

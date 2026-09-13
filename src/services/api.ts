@@ -6,8 +6,6 @@ import type {
   ResponseFilters,
   ResponseList,
   Participant,
-  ParticipantAccess,
-  ParticipantInvitation,
 } from "@/types";
 export class RequestError extends Error {
   constructor(
@@ -51,18 +49,12 @@ export const api = {
     return request<ResponseList>(`admin/submissions?${query}`);
   },
   participants: () => request<Participant[]>("admin/participants"),
-  createParticipant: (body: { fullName: string; email: string }) =>
-    request<ParticipantInvitation>("admin/participants", "POST", body),
-  replaceInvitation: (id: string) =>
-    request<ParticipantInvitation>(
-      `admin/participants/${id}/invitation`,
-      "POST",
-      {},
-    ),
-  setParticipantDisabled: (id: string, disabled: boolean) =>
-    request<Participant>(`admin/participants/${id}`, "PUT", { disabled }),
-  verifyInvitation: (token: string) =>
-    request<ParticipantAccess>("invitations/verify", "POST", { token }),
+  createParticipant: (body: { fullName: string; nim: string }) =>
+    request<Participant>("admin/participants", "POST", body),
+  updateParticipant: (id: string, body: { fullName: string; nim: string }) =>
+    request<Participant>(`admin/participants/${id}`, "PUT", body),
+  deleteParticipant: (id: string) =>
+    request<{ success: boolean }>(`admin/participants/${id}`, "DELETE"),
   response: (id: string) =>
     request<SubmissionDetail>(`admin/submissions/${id}`),
   saveForm: (body: FormConfig) =>

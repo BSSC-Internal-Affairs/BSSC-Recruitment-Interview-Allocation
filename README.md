@@ -1,8 +1,8 @@
 # BSSC Interview Scheduler
 
-A two-step interview registration form with private participant invitations and a protected committee dashboard built with Next.js, React, TypeScript, Tailwind CSS, and PostgreSQL.
+A two-step interview registration form with an admin-managed NIM whitelist and a protected committee dashboard built with Next.js, React, TypeScript, Tailwind CSS, and PostgreSQL.
 
-**Already deployed?** Run `db/002_participants.sql` in Supabase before redeploying. Follow the [participant upgrade guide](docs/upgrade-participants.md) for exact steps and schema changes.
+**Already deployed?** Run `db/003_participant_nim.sql` in Supabase before redeploying. Follow the [participant upgrade guide](docs/upgrade-participants.md) for exact steps and schema changes.
 
 ## Run locally
 
@@ -27,16 +27,16 @@ npm run db:seed
 npm run dev
 ```
 
-Open [committee login](http://localhost:3011/admin). Add interview dates and times, then register participants in **Participants** and share their private links. The app uses port 3011 to avoid other local services. The optional seed creates six example fields only when no fields exist; schedules are managed through the dashboard.
+Open [committee login](http://localhost:3011/admin). Add interview dates and times, then register names and NIMs in **Participants**. Participants use the public form URL. The app uses port 3011 to avoid other local services. The optional seed creates six example fields only when no fields exist; schedules are managed through the dashboard.
 
 This workspace was initialized with a Git-ignored `.env.local` containing randomly generated admin credentials. Use those credentials for local committee access.
 
 ## Features
 
 - Editable header, instructions, dynamic fields, required status, dropdown options, and field ordering.
-- Explicit full-name field mapping for the response table.
+- Dynamic full-name and NIM question mapping; the registered name identifies each response.
 - Inline validation, disabled full/past slots, availability refresh every 10 seconds and on window focus, and printable confirmation.
-- Admin participant registration, private invitation links, disable/enable controls, and one response per participant.
+- Admin participant registration by NIM, editing, safe deletion, name/NIM search, and one response per participant.
 - Protected responses with date, weekday, and time filters, sorting, pagination, search, and complete answer details.
 - Date/slot CRUD and total, registered, and remaining capacity.
 - Booked dates/times cannot be moved or deleted. Capacity cannot fall below existing registrations.
@@ -65,7 +65,7 @@ tests/                    Validation, PostgreSQL, and browser tests
 
 Each reservation runs in one transaction. An advisory lock serializes retries with the same idempotency key. A shared configuration lock keeps validation and answer snapshots consistent with edits. The date is locked against concurrent removal; a conditional slot update increments registrations only when capacity remains and the interview has not started. The submission and all answers commit together. Any failure rolls back capacity too.
 
-The database enforces `0 <= registered_count <= capacity`, foreign keys, unique dates/time ranges, unique request keys, and one response per participant. Remaining capacity is calculated, never stored. A valid invitation is required even when the form has no email field. A participant row lock serializes simultaneous submissions. The first email field, when present, must match the registered email; keep the intended email field first when using multiple email fields.
+The database enforces `0 <= registered_count <= capacity`, foreign keys, unique dates/time ranges, unique request keys, and one response per participant. Remaining capacity is calculated, never stored. A registered NIM is required on every submission. A participant row lock serializes simultaneous submissions, edits, and deletion. The registered name is the trusted response identity. Public inputs never create participants; email answers do not grant access.
 
 Labels, field types, order, answers, and appointment details are snapshotted. Editing or deleting a field preserves historical responses. Snapshot field IDs intentionally have no live-field foreign key.
 
@@ -73,22 +73,22 @@ Labels, field types, order, answers, and appointment details are snapshotted. Ed
 
 Success: `{ "data": ... }`. Error: `{ "error": { "message": "...", "fields": { "fieldId": "..." } } }`, with optional `fields`.
 
-| Method      | Path                         | Purpose                                                                      |
-| ----------- | ---------------------------- | ---------------------------------------------------------------------------- |
-| GET         | `/api/form`                  | Header and ordered fields                                                    |
-| GET         | `/api/schedules`             | Dates, slots, capacity and registered counts                                 |
-| POST        | `/api/submissions`           | `{ invitationToken, slotId, idempotencyKey, answers: { [fieldId]: value } }` |
-| POST        | `/api/admin/login`           | `{ username, password }`                                                     |
-| POST        | `/api/admin/logout`          | Clear session                                                                |
-| GET         | `/api/admin/submissions`     | Filtered and paginated responses                                             |
-| GET         | `/api/admin/submissions/:id` | Full response and answer snapshots                                           |
-| GET, PUT    | `/api/admin/form`            | Read/replace header, name mapping and fields atomically                      |
-| PUT         | `/api/admin/fields`          | Replace ordered field collection atomically                                  |
-| GET         | `/api/admin/schedules`       | Schedule management data                                                     |
-| POST        | `/api/admin/dates`           | `{ date: "YYYY-MM-DD" }`                                                     |
-| PUT, DELETE | `/api/admin/dates/:id`       | Update/remove unbooked date                                                  |
-| POST        | `/api/admin/slots`           | `{ interviewDateId, startTime, endTime, capacity }`                          |
-| PUT, DELETE | `/api/admin/slots/:id`       | Update/remove slot with booking guards                                       |
+| Method      | Path                         | Purpose                                                          |
+| ----------- | ---------------------------- | ---------------------------------------------------------------- |
+| GET         | `/api/form`                  | Header and ordered fields                                        |
+| GET         | `/api/schedules`             | Dates, slots, capacity and registered counts                     |
+| POST        | `/api/submissions`           | `{ nim, slotId, idempotencyKey, answers: { [fieldId]: value } }` |
+| POST        | `/api/admin/login`           | `{ username, password }`                                         |
+| POST        | `/api/admin/logout`          | Clear session                                                    |
+| GET         | `/api/admin/submissions`     | Filtered and paginated responses                                 |
+| GET         | `/api/admin/submissions/:id` | Full response and answer snapshots                               |
+| GET, PUT    | `/api/admin/form`            | Read/replace header, name mapping and fields atomically          |
+| PUT         | `/api/admin/fields`          | Replace ordered field collection atomically                      |
+| GET         | `/api/admin/schedules`       | Schedule management data                                         |
+| POST        | `/api/admin/dates`           | `{ date: "YYYY-MM-DD" }`                                         |
+| PUT, DELETE | `/api/admin/dates/:id`       | Update/remove unbooked date                                      |
+| POST        | `/api/admin/slots`           | `{ interviewDateId, startTime, endTime, capacity }`              |
+| PUT, DELETE | `/api/admin/slots/:id`       | Update/remove slot with booking guards                           |
 
 Times use `HH:mm`. Field types: `text`, `email`, `tel`, `number`, `textarea`, `select`. Fields contain `id`, `label`, `type`, `required`, `order`, and `options`. `nameFieldId` references a required text field. Send the complete ordered collection to add/edit/delete/reorder fields. Errors use appropriate 4xx/5xx statuses.
 
@@ -116,6 +116,6 @@ npm run build
 node --env-file=.env.local node_modules/@playwright/test/cli.js test --timeout=120000
 ```
 
-Integration tests create and clean up an isolated PostgreSQL schema. They cover concurrent reservations, idempotent retries, duplicate email rollback, invalid answers, database guards, and answer history. Browser tests cover the participant journey, protected admin CRUD, dynamic fields, full slots, and mobile layout; they restore configuration and remove their own records. Run browser tests against a local database, not a live recruitment event.
+Integration tests create and clean up an isolated PostgreSQL schema. They cover concurrent reservations, idempotent retries, unknown NIM rejection, participant CRUD, duplicate response rollback, invalid answers, database guards, and answer history. Browser tests cover the participant journey, protected admin CRUD, dynamic fields, full slots, and mobile layout; they restore configuration and remove their own records. Run browser tests against a local database, not a live recruitment event.
 
 References: [Next.js route handlers](https://nextjs.org/docs/app/api-reference/file-conventions/route), [PostgreSQL row locking](https://www.postgresql.org/docs/17/explicit-locking.html).

@@ -196,9 +196,7 @@ export function FormEditor() {
             </button>
           </div>
           <div className="field name-mapping">
-            <label htmlFor="name-field">
-              Full-name field for the responses table
-            </label>
+            <label htmlFor="name-field">Full-name question</label>
             <select
               id="name-field"
               value={config.nameFieldId || ""}
@@ -214,7 +212,34 @@ export function FormEditor() {
                 ))}
             </select>
             <small>
-              This connects your dynamic form to the applicant’s display name.
+              The answer is saved with the form. The registered participant name
+              identifies the response.
+            </small>
+          </div>
+          <div className="field name-mapping">
+            <label htmlFor="nim-field">NIM question</label>
+            <select
+              id="nim-field"
+              value={config.nimFieldId || ""}
+              onChange={(e) => update({ nimFieldId: e.target.value || null })}
+            >
+              <option value="">Use a separate required NIM input</option>
+              {config.fields
+                .filter(
+                  (f) =>
+                    f.type === "text" &&
+                    f.required &&
+                    f.id !== config.nameFieldId,
+                )
+                .map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.label}
+                  </option>
+                ))}
+            </select>
+            <small>
+              NIM is always required. Select an existing question to avoid
+              asking for it twice.
             </small>
           </div>
           {config.fields.map((f, index) => (
@@ -324,6 +349,8 @@ export function FormEditor() {
                           config.nameFieldId === f.id
                             ? null
                             : config.nameFieldId,
+                        nimFieldId:
+                          config.nimFieldId === f.id ? null : config.nimFieldId,
                       });
                   }}
                 >

@@ -12,9 +12,8 @@ import { listSubmissions } from "../services/responses";
 import {
   createParticipant,
   listParticipants,
-  replaceInvitation,
-  setParticipantDisabled,
-  verifyInvitation,
+  updateParticipant,
+  deleteParticipant,
 } from "../services/participants";
 import { configSchema, dateSchema, slotSchema } from "../validators";
 export async function handle(
@@ -52,12 +51,6 @@ export async function handle(
       return ok(await getSchedules());
     if (route === "submissions" && method === "POST")
       return ok(await submit(await body()), 201);
-    if (route === "invitations/verify" && method === "POST") {
-      const input = z
-        .object({ token: z.string().max(256) })
-        .parse(await body());
-      return ok(await verifyInvitation(input.token));
-    }
     if (route === "admin/login" && method === "POST") {
       const b = z
         .object({
@@ -76,18 +69,15 @@ export async function handle(
         return ok(await createParticipant(await body()), 201);
     }
     if (path[1] === "participants" && path.length === 3 && method === "PUT") {
-      const input = z.object({ disabled: z.boolean() }).parse(await body());
-      return ok(
-        await setParticipantDisabled(z.uuid().parse(path[2]), input.disabled),
-      );
+      return ok(await updateParticipant(z.uuid().parse(path[2]), await body()));
     }
     if (
       path[1] === "participants" &&
-      path.length === 4 &&
-      path[3] === "invitation" &&
-      method === "POST"
+      path.length === 3 &&
+      method === "DELETE"
     ) {
-      return ok(await replaceInvitation(z.uuid().parse(path[2])));
+      await deleteParticipant(z.uuid().parse(path[2]));
+      return ok({ success: true });
     }
     if (route === "admin/logout" && method === "POST") {
       (await cookies()).delete(cookieName);
@@ -228,7 +218,7 @@ export async function handle(
     } else if ((error as { code?: string }).code === "23505") {
       status = 409;
       message =
-        "This record already exists. If you have already registered with this email, please contact the committee.";
+        "This record already exists. Please check the details and try again.";
     } else if ((error as { code?: string }).code === "23503") {
       status = 409;
       message =

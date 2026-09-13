@@ -13,17 +13,16 @@ import { FormIntro } from "./form-intro";
 import { ScheduleSelector } from "./schedule-selector";
 import { Brand } from "./brand";
 import { DynamicField } from "./dynamic-field";
-import { InvitationGate } from "./invitation-gate";
-import { useInvitation } from "@/hooks/use-invitation";
 import { api, RequestError } from "@/services/api";
 import { useSchedules } from "@/hooks/use-schedules";
-import { validateAnswers } from "@/server/validators";
+import { validateAnswers, nimSchema } from "@/server/validators";
 import { formatDate, isFutureSlot } from "@/utils/format";
 import type { Booking, FormConfig } from "@/types";
 export function ParticipantForm() {
   const [config, setConfig] = useState<FormConfig | null>(null),
     [step, setStep] = useState(1),
     [answers, setAnswers] = useState<Record<string, string>>({}),
+    [standaloneNim, setStandaloneNim] = useState(""),
     [errors, setErrors] = useState<Record<string, string>>({}),
     [error, setError] = useState(""),
     [dateId, setDateId] = useState(""),
@@ -33,13 +32,16 @@ export function ParticipantForm() {
   const key = useRef(""),
     submitting = useRef(false),
     heading = useRef<HTMLHeadingElement>(null);
-  const invitation = useInvitation();
+  const nim = config?.nimFieldId
+    ? answers[config.nimFieldId] || ""
+    : standaloneNim;
+  const nimInputId = config?.nimFieldId || "participant-nim";
   const {
     dates,
     error: scheduleError,
     loading,
     refresh,
-  } = useSchedules(!!invitation.access && !booking);
+  } = useSchedules(!booking);
   const load = () =>
     api
       .form()
@@ -48,30 +50,6 @@ export function ParticipantForm() {
   useEffect(() => {
     void load();
   }, []);
-  useEffect(() => {
-    setAnswers({});
-    setStep(1);
-    setBooking(null);
-    setError("");
-    setErrors({});
-    key.current = "";
-  }, [invitation.token]);
-  useEffect(() => {
-    if (!invitation.access) return;
-    if (invitation.access.booking) setBooking(invitation.access.booking);
-    if (config) {
-      const email = config.fields.find((field) => field.type === "email");
-      setAnswers((previous) => ({
-        ...previous,
-        ...(config.nameFieldId && previous[config.nameFieldId] === undefined
-          ? { [config.nameFieldId]: invitation.access!.fullName }
-          : {}),
-        ...(email && previous[email.id] === undefined
-          ? { [email.id]: invitation.access!.email }
-          : {}),
-      }));
-    }
-  }, [invitation.access, config]);
   const selectedDate = dates.find((d) => d.id === dateId),
     selectedSlot = selectedDate?.slots.find((s) => s.id === slotId);
   const canBook =
@@ -84,9 +62,12 @@ export function ParticipantForm() {
   }, [step, booking]);
   async function advance(event: React.FormEvent) {
     event.preventDefault();
-    if (!config || !invitation.access || submitting.current) return;
+    if (!config || submitting.current) return;
     setError("");
     const issues = validateAnswers(config.fields, answers);
+    const checkedNim = nimSchema.safeParse(nim);
+    if (!checkedNim.success)
+      issues[nimInputId] = "Enter a valid NIM using digits only.";
     setErrors(issues);
     if (Object.keys(issues).length) {
       setStep(1);
@@ -111,16 +92,19 @@ export function ParticipantForm() {
           answers,
           slotId,
           idempotencyKey: key.current,
-          invitationToken: invitation.token,
+          nim,
         }),
       );
       void refresh();
     } catch (e) {
       setError((e as Error).message);
       if (e instanceof RequestError) {
-        if (e.status === 403) void invitation.refresh();
         if (e.fields) {
-          setErrors(e.fields);
+          const { nim: nimError, ...fieldErrors } = e.fields;
+          setErrors({
+            ...fieldErrors,
+            ...(nimError ? { [nimInputId]: nimError } : {}),
+          });
           setStep(1);
           // Recover when an administrator changes fields while this form is open.
           try {
@@ -170,13 +154,7 @@ export function ParticipantForm() {
       <main className="public-main">
         <FormIntro config={config} />
         <section className="form-card">
-          {!invitation.access ? (
-            <InvitationGate
-              checking={invitation.checking}
-              error={invitation.error}
-              onRetry={() => void invitation.refresh()}
-            />
-          ) : booking ? (
+          {booking ? (
             <div className="confirmation">
               <span className="success-icon">
                 <CheckCircle2 size={38} />
@@ -223,15 +201,6 @@ export function ParticipantForm() {
                 </div>
               </div>
               <div className="form-body">
-                <div className="invitation-banner">
-                  <ShieldCheck size={17} />
-                  <span>
-                    Invited as <strong>{invitation.access.fullName}</strong>
-                    <small>
-                      {invitation.access.email} · One response per participant
-                    </small>
-                  </span>
-                </div>
                 <div className="section-kicker">STEP {step} OF 2</div>
                 <h2 ref={heading} tabIndex={-1}>
                   {step === 1
@@ -272,6 +241,39 @@ export function ParticipantForm() {
                       {step === 1 ? (
                         <>
                           <div className="fields-grid">
+                            {!config.nimFieldId && (
+                              <div className="field">
+                                <label htmlFor={nimInputId}>
+                                  NIM <span className="required">*</span>
+                                </label>
+                                <input
+                                  id={nimInputId}
+                                  name="nim"
+                                  inputMode="numeric"
+                                  maxLength={32}
+                                  required
+                                  value={standaloneNim}
+                                  aria-invalid={!!errors[nimInputId]}
+                                  aria-describedby={
+                                    errors[nimInputId] ? "nim-error" : undefined
+                                  }
+                                  onChange={(e) => {
+                                    setStandaloneNim(e.target.value);
+                                    setErrors((previous) => {
+                                      const next = { ...previous };
+                                      delete next[nimInputId];
+                                      return next;
+                                    });
+                                    key.current = "";
+                                  }}
+                                />
+                                {errors[nimInputId] && (
+                                  <p className="field-error" id="nim-error">
+                                    {errors[nimInputId]}
+                                  </p>
+                                )}
+                              </div>
+                            )}
                             {config.fields.map((f) => (
                               <DynamicField
                                 key={f.id}

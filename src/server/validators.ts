@@ -18,9 +18,21 @@ export const configSchema = z
     description: z.string().max(2000),
     instructions: z.string().max(4000),
     nameFieldId: z.uuid().nullable(),
+    nimFieldId: z.uuid().nullable().default(null),
     fields: z.array(fieldSchema).max(50),
   })
   .superRefine((c, ctx) => {
+    if (
+      c.nimFieldId &&
+      (c.nimFieldId === c.nameFieldId ||
+        !c.fields.some(
+          (f) => f.id === c.nimFieldId && f.type === "text" && f.required,
+        ))
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "The NIM field must be a separate required text field.",
+      });
     if (new Set(c.fields.map((f) => f.id)).size !== c.fields.length)
       ctx.addIssue({ code: "custom", message: "Field IDs must be unique." });
     if (
@@ -47,17 +59,19 @@ export const slotSchema = z
   .refine((s) => s.endTime > s.startTime, {
     message: "End time must be after start time.",
   });
+export const nimSchema = z
+  .string()
+  .trim()
+  .regex(/^[0-9]{1,32}$/, "Enter a valid NIM using digits only.");
 export const submissionSchema = z.object({
-  invitationToken: z
-    .string()
-    .regex(/^[0-9a-f]{64}$/, "Open your private invitation link to register."),
+  nim: nimSchema,
   slotId: z.uuid(),
   idempotencyKey: z.uuid(),
   answers: z.record(z.string(), z.string().max(4000)),
 });
 export const participantSchema = z.object({
   fullName: z.string().trim().min(1, "Full name is required.").max(200),
-  email: z.string().trim().toLowerCase().email().max(254),
+  nim: nimSchema,
 });
 export const responseFiltersSchema = z.object({
   q: z.string().trim().max(200).default(""),

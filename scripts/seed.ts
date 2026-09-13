@@ -10,7 +10,7 @@ await transaction(async (client) => {
     ["Full name", "text", true, []],
     ["Email address", "email", true, []],
     ["Phone number", "tel", true, []],
-    ["Student ID", "text", true, []],
+    ["NIM", "text", true, []],
     [
       "Preferred division",
       "select",
@@ -35,6 +35,11 @@ await transaction(async (client) => {
       i,
       JSON.stringify(field[3]),
     ]);
+    if (i === 3)
+      await client.query(
+        "UPDATE form_configuration SET nim_field_id=$1 WHERE id=1",
+        [id],
+      );
     if (i === 0)
       await client.query(
         "UPDATE form_configuration SET name_field_id=$1 WHERE id=1",

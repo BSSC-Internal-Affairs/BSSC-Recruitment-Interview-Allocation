@@ -20,6 +20,7 @@ export interface FormConfig {
   description: string;
   instructions: string;
   nameFieldId: string | null;
+  nimFieldId?: string | null;
   fields: FormField[];
 }
 export interface Slot {
@@ -59,21 +60,12 @@ export interface Booking {
 export interface Participant {
   id: string;
   fullName: string;
-  email: string;
-  disabled: boolean;
+  nim: string | null;
   createdAt: string;
+  updatedAt: string;
   formId: string | null;
   submissionId: string | null;
   submittedAt: string | null;
-}
-export interface ParticipantInvitation {
-  participant: Participant;
-  token: string;
-}
-export interface ParticipantAccess {
-  fullName: string;
-  email: string;
-  booking: Booking | null;
 }
 export interface ResponseFilters {
   q?: string;

@@ -18,12 +18,43 @@ const field = (type: FormField["type"], required = true): FormField => ({
   order: 0,
   options: ["A", "B"],
 });
-test('participant identities normalize email and anonymous submissions require an invitation',()=>{
-  assert.equal(participantSchema.parse({fullName:' Test ',email:' Person@Example.com '}).email,'person@example.com');
-  assert.equal(submissionSchema.safeParse({slotId:id,idempotencyKey:id,answers:{}}).success,false);
-  assert.equal(responseFiltersSchema.safeParse({weekday:'7'}).success,false);
-  assert.equal(responseFiltersSchema.parse({weekday:'0',page:'2'}).weekday,0);
+test("NIM is required, normalized as text, and invitation tokens do not grant access", () => {
+  assert.equal(
+    participantSchema.parse({ fullName: " Test ", nim: " 00123456 " }).nim,
+    "00123456",
+  );
+  for (const nim of [
+    undefined,
+    "",
+    "  ",
+    "12e3",
+    "12 34",
+    12345,
+    "1".repeat(33),
+  ])
+    assert.equal(
+      participantSchema.safeParse({ fullName: "Test", nim }).success,
+      false,
+    );
+  assert.equal(
+    submissionSchema.safeParse({
+      slotId: id,
+      idempotencyKey: id,
+      invitationToken: "a".repeat(64),
+      answers: {},
+    }).success,
+    false,
+  );
+  assert.equal(
+    responseFiltersSchema.safeParse({ weekday: "7" }).success,
+    false,
+  );
+  assert.equal(
+    responseFiltersSchema.parse({ weekday: "0", page: "2" }).weekday,
+    0,
+  );
 });
+
 test("required fields reject whitespace; optional fields can be blank", () => {
   assert.ok(validateAnswers([field("text")], { [id]: "  " })[id]);
   assert.deepEqual(validateAnswers([field("email", false)], {}), {});

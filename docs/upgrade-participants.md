@@ -1,61 +1,39 @@
-# Upgrade: registered participants
+# Upgrade to the NIM participant whitelist
 
-Apply the database change **before deploying the updated application**. No new environment variables are required; keep the existing database connection, admin credentials, `SESSION_SECRET`, and `APP_ORIGIN`.
+## Deploy the update
 
-## 1. Update your existing Supabase database
+1. In your existing Supabase project, open **SQL Editor → New query**.
+2. Copy all of `db/003_participant_nim.sql` into the query and click **Run**. This assumes the previous `002_participants.sql` migration is already installed.
+3. Deploy the updated code to Vercel immediately afterward. The old application uses columns removed by this migration, so coordinate these steps during a quiet period.
+4. Open **Admin → Participants**. Edit existing records marked **NIM needed** and enter each person's verified NIM. No NIMs are guessed or taken from public answers.
 
-1. Open the Supabase project used by this app.
-2. Open **SQL Editor** and create a **New query**.
-3. Open `db/002_participants.sql` in this repository and copy its entire contents into the editor.
-4. Click **Run** and wait for success. Resolve any error before deploying.
+No new environment variables are required. For a fresh local installation, `npm run db:migrate` applies the migrations in order. Rerunning that command on an upgraded database skips the obsolete invitation migration.
 
-Run only `002_participants.sql` for this upgrade. Do not recreate the database or run the seed. The migration runs in a transaction and is safe to rerun.
+## Database changes
 
-| Change                                                               | Purpose                                                                                                             |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| New `participants` table                                             | ID, full name, unique normalized email, unique invitation token hash, disabled status, creation timestamp.          |
-| New nullable `submissions.participant_id`                            | Connects responses to participants; nullable to preserve older responses.                                           |
-| Foreign key and unique index on `submissions.participant_id`         | Prevents deleting linked participants and allows one response per participant.                                      |
-| Interview date/time/submission time and participant creation indexes | Support sorting and listing.                                                                                        |
-| Row Level Security on `participants`                                 | No public Data API access to the roster or invitation hashes. The app uses its existing server database connection. |
+- Adds unique `participants.nim` (text, 1–32 digits; leading zeros are preserved) and `updated_at` with an update trigger.
+- Preserves old participants with a NULL NIM until an admin assigns one. They cannot submit without a registered NIM. New registrations and edits require a NIM.
+- Removes `participants.email`, `invitation_token_hash`, and `disabled`.
+- Retains `submissions.participant_id`, its foreign key, and its unique index: one response per participant.
+- Removes the old unique constraint on `submissions.email_key`. Email remains a form answer, not an authorization or deduplication key. Historical values are preserved.
+- Adds optional `form_configuration.nim_field_id` with a foreign key. An existing text question labeled NIM, Student ID, or Student Number is mapped and labeled NIM. If none exists, the public form shows a separate required NIM input. Admins can adjust this mapping under Form configuration.
 
-Existing responses, answers, dates, slots, and capacity are preserved. Older responses containing an email are added to the roster and linked to their earliest matching response. They appear as already responded and cannot receive a second invitation. Responses without an email remain in Responses, with no participant link.
+Existing participant IDs, responses, answers, interview dates, times, and capacity are preserved. Existing participants who already responded remain associated with their responses after their NIM is assigned. Responses predating participant tracking remain available; review historical records when preparing the whitelist.
 
-Weekday and interview time use existing `submissions.interview_date`, `start_time`, and `end_time` columns; these are not new columns. For a fresh local database, `npm run db:migrate` applies all migrations in order.
+## Correct workflow
 
-## 2. Redeploy on Vercel
+- Admins register **Full name + NIM**, and can search, edit, or delete participants with no responses. Participants with responses cannot be deleted.
+- Everyone opens the same public form URL. No invitation, email delivery, private link, or access token is used.
+- The submission API checks the submitted NIM against the admin-managed roster before reserving capacity. Unknown NIMs receive: **Your NIM is not registered for this interview.** Public submissions never create participants.
+- The registered participant name is saved as the response identity. A name entered in the form is retained as an answer and does not authorize submission.
+- Editing a participant keeps the same participant ID, so a participant who already responded cannot submit again after an edit.
 
-1. After the SQL query succeeds, commit and push the updated code to the branch connected to Vercel production.
-2. Wait for the new deployment to show **Ready**. If automatic deployments are disabled, deploy that updated commit from Vercel.
-3. Open the production site and sign in at `/admin`.
+## API
 
-The old application retains its old access behavior until the new code is deployed. After the update, the homepage requires an invitation. Previously opened forms without an invitation cannot submit.
+- `POST /api/admin/participants`: `{ fullName, nim }` → participant.
+- `PUT /api/admin/participants/:id`: `{ fullName, nim }` → updated participant.
+- `DELETE /api/admin/participants/:id`: deletes only participants without responses.
+- `GET /api/admin/participants`: admin-only roster, including response status and legacy NIMs awaiting completion.
+- `POST /api/submissions`: `{ nim, slotId, idempotencyKey, answers }`. If a dynamic NIM question is mapped, its answer must match `nim`.
 
-## 3. Register and invite participants
-
-1. Open **Participants** in the admin sidebar.
-2. Enter a full name and email, then click **Register participant**.
-3. Copy the **Private invitation link** and send it privately using your usual communication channel. The app does not send email automatically.
-4. The participant opens that link, completes the form, and chooses an interview time.
-5. Their status changes to **Responded**. Opening the same link again displays their confirmation instead of another form.
-
-Each email can be registered once, ignoring capitalization and surrounding spaces. The first email field, if present, is prefilled and must match the registered email. Registration is still required if the form has no email field.
-
-Links contain a random 256-bit token in the URL fragment (`#invite=...`). Only its SHA-256 hash is stored. Treat the full link as private: anyone holding it can use that invitation. This is an invitation system, not email ownership verification.
-
-The full link is shown after registration or replacement. Save it before leaving. If you lose a pending participant's link, click **Replace link**; the previous link immediately stops working. **Disable** blocks access and submission; **Enable** restores access. Completed participants cannot receive replacement links or submit again.
-
-## 4. Filter responses
-
-Open **Responses** to see interview weekday, date, and time range in WIB. Filter by date, weekday, or start time. Sort by submission time, interview date/time, or name. Search and filters apply to all matching responses, with 50 results per page.
-
-## API changes
-
-- `POST /api/submissions` requires `invitationToken` with the existing fields.
-- `POST /api/invitations/verify` accepts `{ token }` and returns identity and any completed booking.
-- Admin-only `GET/POST /api/admin/participants` lists/registers participants.
-- Admin-only `PUT /api/admin/participants/:id` accepts `{ disabled }`.
-- Admin-only `POST /api/admin/participants/:id/invitation` replaces a pending invitation.
-- Admin-only `GET /api/admin/submissions` returns `{ items, total, page, pageSize, dates, times }` inside the standard `data` wrapper. Query parameters: `q`, `date`, `weekday` (0=Sunday through 6=Saturday), `time`, `sort`, `page`.
-
-Sort values: `submitted_desc`, `submitted_asc`, `interview_asc`, `interview_desc`, `name_asc`.
+The invitation endpoints have been removed. Response date/day/time filtering and sorting are unchanged.

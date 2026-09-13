@@ -24,9 +24,9 @@ const { getConfig, saveConfig } =
 const { ApiError } = await import("../src/server/errors");
 const {
   createParticipant,
-  verifyInvitation,
-  replaceInvitation,
-  setParticipantDisabled,
+  updateParticipant,
+  deleteParticipant,
+  listParticipants,
 } = await import("../src/server/services/participants");
 const { listSubmissions } = await import("../src/server/services/responses");
 await pool.query(await readFile("db/001_initial.sql", "utf8"));
@@ -50,7 +50,13 @@ for (const [id, email] of [
     [id, legacySlot, randomUUID(), email],
   );
 }
-const migration = await readFile("db/002_participants.sql", "utf8");
+await pool.query(await readFile("db/002_participants.sql", "utf8"));
+const oldPendingId = randomUUID();
+await pool.query(
+  "INSERT INTO participants(id,full_name,email,invitation_token_hash,disabled) VALUES($1,'Old Pending','old@example.com',$2,true)",
+  [oldPendingId, "a".repeat(64)],
+);
+const migration = await readFile("db/003_participant_nim.sql", "utf8");
 await pool.query(migration);
 const nameId = randomUUID(),
   emailId = randomUUID(),
@@ -95,19 +101,24 @@ const newSlot = async (capacity: number, start = "09:00", end = "09:30") => {
   );
   return id;
 };
+let nextNim = 26010000;
 const payload = async (
   slotId: string,
   email = `${randomUUID()}@example.com`,
-) => ({
-  invitationToken: (
-    await createParticipant({ fullName: "Test Participant", email })
-  ).token,
-  slotId,
-  idempotencyKey: randomUUID(),
-  answers: { [nameId]: "Test Participant", [emailId]: email },
-});
+) => {
+  const p = await createParticipant({
+    fullName: "Test Participant",
+    nim: String(nextNim++),
+  });
+  return {
+    nim: p.nim!,
+    slotId,
+    idempotencyKey: randomUUID(),
+    answers: { [nameId]: "Test Participant", [emailId]: email },
+  };
+};
 try {
-  await test("migration preserves historical responses and safely links existing email identities", async () => {
+  await test("migration removes onboarding fields, preserves identities, and requires admin NIM assignment", async () => {
     await pool.query(migration);
     const { rows } = await pool.query(
       "SELECT id,participant_id FROM submissions WHERE id=ANY($1::uuid[])",
@@ -119,8 +130,28 @@ try {
       rows.find((row) => row.id === legacyWithoutEmail).participant_id,
       null,
     );
+    const roster = await listParticipants();
+    assert.equal(roster.find((p) => p.id === oldPendingId)?.nim, null);
+    assert.equal(roster.find((p) => p.id === legacyWithEmail)?.nim, null);
+    const { rows: columns } = await pool.query(
+      "SELECT attname FROM pg_attribute WHERE attrelid='participants'::regclass AND attnum>0 AND NOT attisdropped",
+    );
+    assert.deepEqual(
+      columns.map((c) => c.attname).sort(),
+      ["id", "full_name", "nim", "created_at", "updated_at"].sort(),
+    );
+    const old = await updateParticipant(legacyWithEmail, {
+      fullName: "Legacy Participant",
+      nim: "00000001",
+    });
+    assert.ok(old.submissionId);
     await assert.rejects(
-      createParticipant({ fullName: "Again", email: " LEGACY@example.com " }),
+      submit({
+        nim: "00000001",
+        slotId: legacySlot,
+        idempotencyKey: randomUUID(),
+        answers: {},
+      }),
       (e) => (e as InstanceType<typeof ApiError>).status === 409,
     );
     const {
@@ -188,7 +219,7 @@ try {
       (e) => (e as InstanceType<typeof ApiError>).status === 409,
     );
     await assert.rejects(
-      createParticipant({ fullName: "Again", email }),
+      createParticipant({ fullName: "Again", nim: data.nim }),
       (e) => (e as InstanceType<typeof ApiError>).status === 409,
     );
     const {
@@ -231,54 +262,95 @@ try {
     );
     assert.equal(s.registered_count, 0);
   });
-  await test("invalid, disabled and replaced invitations cannot submit or consume capacity", async () => {
-    const id = await newSlot(3, "13:00", "13:30");
-    const data = await payload(id);
+  await test("unknown NIM cannot submit, consume capacity, or create a participant", async () => {
+    const id = await newSlot(3, "13:00", "13:30"),
+      data = await payload(id);
+    const before = (await listParticipants()).length;
     await assert.rejects(
-      submit({ ...data, invitationToken: "0".repeat(64) }),
-      (e) => (e as InstanceType<typeof ApiError>).status === 403,
+      submit({ ...data, nim: "99999999" }),
+      (e) =>
+        (e as InstanceType<typeof ApiError>).status === 422 &&
+        (e as Error).message ===
+          "Your NIM is not registered for this interview.",
     );
+    await assert.rejects(
+      submit({ ...data, nim: undefined, invitationToken: "a".repeat(64) }),
+    );
+    assert.equal((await listParticipants()).length, before);
     const {
-      rows: [p],
-    } = await pool.query("SELECT id FROM participants WHERE email=$1", [
-      data.answers[emailId],
-    ]);
-    await setParticipantDisabled(p.id, true);
-    await assert.rejects(
-      submit(data),
-      (e) => (e as InstanceType<typeof ApiError>).status === 403,
-    );
-    await assert.rejects(
-      verifyInvitation(data.invitationToken),
-      (e) => (e as InstanceType<typeof ApiError>).status === 403,
-    );
-    await setParticipantDisabled(p.id, false);
-    const replacement = await replaceInvitation(p.id);
-    await assert.rejects(
-      submit(data),
-      (e) => (e as InstanceType<typeof ApiError>).status === 403,
-    );
-    const valid = { ...data, invitationToken: replacement.token };
-    await assert.rejects(
-      submit({
-        ...valid,
-        answers: { ...valid.answers, [emailId]: "unregistered@example.com" },
-      }),
-      (e) => (e as InstanceType<typeof ApiError>).status === 422,
-    );
-    const {
-      rows: [s],
+      rows: [slot],
     } = await pool.query(
       "SELECT registered_count FROM interview_slots WHERE id=$1",
       [id],
     );
-    assert.equal(s.registered_count, 0);
-    assert.equal(
-      (await verifyInvitation(replacement.token)).email,
-      data.answers[emailId],
+    assert.equal(slot.registered_count, 0);
+  });
+  await test("admin CRUD enforces unique NIM and protects participants with responses", async () => {
+    const p = await createParticipant({
+      fullName: "Original",
+      nim: " 00123456 ",
+    });
+    await assert.rejects(
+      createParticipant({ fullName: "Duplicate", nim: "00123456" }),
+      (e) => (e as InstanceType<typeof ApiError>).status === 409,
     );
-    await submit(valid);
-    assert.ok((await verifyInvitation(replacement.token)).booking);
+    const updated = await updateParticipant(p.id, {
+      fullName: "Trusted Name",
+      nim: "00123457",
+    });
+    assert.equal(updated.nim, "00123457");
+    assert.ok(new Date(updated.updatedAt) >= new Date(p.updatedAt));
+    const other = await createParticipant({
+      fullName: "Other",
+      nim: "00123458",
+    });
+    await assert.rejects(
+      updateParticipant(other.id, { fullName: "Other", nim: "00123457" }),
+      (e) => (e as InstanceType<typeof ApiError>).status === 409,
+    );
+    await deleteParticipant(other.id);
+    const id = await newSlot(2, "13:30", "14:00");
+    const input = {
+      nim: "00123457",
+      slotId: id,
+      idempotencyKey: randomUUID(),
+      answers: { [nameId]: "Untrusted Name", [emailId]: "shared@example.com" },
+    };
+    await assert.rejects(
+      submit({ ...input, nim: "00123456" }),
+      (e) => (e as InstanceType<typeof ApiError>).status === 422,
+    );
+    await submit(input);
+    const {
+      rows: [s],
+    } = await pool.query(
+      "SELECT id,participant_id,full_name FROM submissions WHERE participant_id=$1",
+      [p.id],
+    );
+    assert.equal(s.full_name, "Trusted Name");
+    assert.equal(s.participant_id, p.id);
+    assert.equal(
+      (await getSubmission(s.id)).answers.find((a) => a.fieldId === nameId)
+        ?.value,
+      "Untrusted Name",
+    );
+    await assert.rejects(
+      deleteParticipant(p.id),
+      (e) => (e as InstanceType<typeof ApiError>).status === 409,
+    );
+    await assert.rejects(
+      pool.query("DELETE FROM participants WHERE id=$1", [p.id]),
+    );
+    await updateParticipant(p.id, {
+      fullName: "Corrected Name",
+      nim: "00123459",
+    });
+    await assert.rejects(
+      submit({ ...input, nim: "00123459", idempotencyKey: randomUUID() }),
+      (e) => (e as InstanceType<typeof ApiError>).status === 409,
+    );
+    // Email is an answer, not an identity or whitelist requirement.
+    await submit(await payload(id, "shared@example.com"));
   });
   await test("simultaneous requests for one participant across two slots reserve only one place", async () => {
     const first = await newSlot(5, "14:00", "14:30"),
@@ -346,6 +418,61 @@ try {
     assert.equal(second.items.length, 1);
     assert.equal(second.items[0].fullName, "Pagination 051");
   });
+  await test("mapped NIM answers must match the whitelist identity", async () => {
+    const original = await getConfig(),
+      nimId = randomUUID(),
+      slot = await newSlot(2, "18:00", "18:30");
+    try {
+      await transaction((db) =>
+        saveConfig(
+          {
+            ...original,
+            nimFieldId: nimId,
+            fields: [
+              ...original.fields,
+              {
+                id: nimId,
+                label: "NIM",
+                type: "text",
+                required: true,
+                order: 2,
+                options: [],
+              },
+            ],
+          },
+          db,
+        ),
+      );
+      const data = await payload(slot);
+      await assert.rejects(
+        submit({ ...data, answers: { ...data.answers, [nimId]: "99999999" } }),
+        (e) => (e as InstanceType<typeof ApiError>).status === 422,
+      );
+      await submit({
+        ...data,
+        answers: { ...data.answers, [nimId]: data.nim },
+      });
+    } finally {
+      await transaction((db) => saveConfig(original, db));
+    }
+  });
+  await test("concurrent deletion and submission cannot create an orphan response", async () => {
+    const slot = await newSlot(2, "19:00", "19:30"),
+      data = await payload(slot);
+    const p = (await listParticipants()).find((p) => p.nim === data.nim)!;
+    const results = await Promise.allSettled([
+      submit(data),
+      deleteParticipant(p.id),
+    ]);
+    assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+    const {
+      rows: [state],
+    } = await pool.query(
+      "SELECT registered_count,(SELECT count(*)::integer FROM submissions WHERE participant_id=$2) AS responses FROM interview_slots WHERE id=$1",
+      [slot, p.id],
+    );
+    assert.equal(state.registered_count, state.responses);
+  });
   await test("historical labels and answers survive deleting and renaming fields", async () => {
     const {
       rows: [s],
@@ -361,7 +488,7 @@ try {
     const after = await getSubmission(s.id);
     assert.deepEqual(after.answers, before.answers);
   });
-  await test("removing the email field still requires an invitation and prevents a second response", async () => {
+  await test("removing the email field still requires a registered NIM and prevents a second response", async () => {
     const slot = await newSlot(3, "17:00", "17:30"),
       data = await payload(slot);
     const config = await getConfig();
@@ -369,7 +496,7 @@ try {
       ...data,
       answers: { [config.nameFieldId!]: "No email field" },
     };
-    await assert.rejects(submit({ ...input, invitationToken: undefined }));
+    await assert.rejects(submit({ ...input, nim: undefined }));
     await submit(input);
     await assert.rejects(
       submit({ ...input, idempotencyKey: randomUUID() }),
