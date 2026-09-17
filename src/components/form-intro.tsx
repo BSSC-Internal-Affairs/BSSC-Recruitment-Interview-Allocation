@@ -1,4 +1,5 @@
 import { Sparkles, Sun } from "lucide-react";
+import Link from "next/link";
 import type { FormConfig } from "@/types";
 export function FormIntro({ config }: { config: FormConfig | null }) {
   return (
@@ -12,6 +13,9 @@ export function FormIntro({ config }: { config: FormConfig | null }) {
           ? config.description
           : "A little about you. A time that works. Let’s meet and discover what we can build together."}
       </p>
+      <Link className="text-button" href="/schedule-check">
+        Already submitted? Check your interview schedule →
+      </Link>
       <div className="community-art" aria-hidden="true">
         <div className="art-orbit" />
         <div className="art-card purple">

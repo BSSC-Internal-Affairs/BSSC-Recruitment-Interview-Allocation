@@ -4,6 +4,8 @@ A two-step interview registration form with an admin-managed NIM whitelist and a
 
 **Already deployed?** Run `db/003_participant_nim.sql` in Supabase before redeploying. Follow the [participant upgrade guide](docs/upgrade-participants.md) for exact steps and schema changes.
 
+For public schedule lookup, also run `db/004_schedule_lookup.sql` before deploying this version. It snapshots existing submission NIMs using linked participants, then unambiguous historical NIM answers. Records with no known NIM remain unsearchable until their submission NIM is assigned. New submissions save their NIM directly; subsequent roster edits do not change that snapshot.
+
 ## Run locally
 
 Requires Node.js 22.13+ and Docker (or an existing PostgreSQL 17 database).
@@ -34,6 +36,7 @@ This workspace was initialized with a Git-ignored `.env.local` containing random
 ## Features
 
 - Editable header, instructions, dynamic fields, required status, dropdown options, and field ordering.
+- Public `/schedule-check` page: exact NIM lookup with only interview date and time, no login or whitelist check.
 - Dynamic full-name and NIM question mapping; the registered name identifies each response.
 - Inline validation, disabled full/past slots, availability refresh every 10 seconds and on window focus, and printable confirmation.
 - Admin participant registration by NIM, editing, safe deletion, name/NIM search, and one response per participant.
@@ -73,26 +76,31 @@ Labels, field types, order, answers, and appointment details are snapshotted. Ed
 
 Success: `{ "data": ... }`. Error: `{ "error": { "message": "...", "fields": { "fieldId": "..." } } }`, with optional `fields`.
 
-| Method      | Path                         | Purpose                                                          |
-| ----------- | ---------------------------- | ---------------------------------------------------------------- |
-| GET         | `/api/form`                  | Header and ordered fields                                        |
-| GET         | `/api/schedules`             | Dates, slots, capacity and registered counts                     |
-| POST        | `/api/submissions`           | `{ nim, slotId, idempotencyKey, answers: { [fieldId]: value } }` |
-| POST        | `/api/admin/login`           | `{ username, password }`                                         |
-| POST        | `/api/admin/logout`          | Clear session                                                    |
-| GET         | `/api/admin/submissions`     | Filtered and paginated responses                                 |
-| GET         | `/api/admin/submissions/:id` | Full response and answer snapshots                               |
-| GET, PUT    | `/api/admin/form`            | Read/replace header, name mapping and fields atomically          |
-| PUT         | `/api/admin/fields`          | Replace ordered field collection atomically                      |
-| GET         | `/api/admin/schedules`       | Schedule management data                                         |
-| POST        | `/api/admin/dates`           | `{ date: "YYYY-MM-DD" }`                                         |
-| PUT, DELETE | `/api/admin/dates/:id`       | Update/remove unbooked date                                      |
-| POST        | `/api/admin/slots`           | `{ interviewDateId, startTime, endTime, capacity }`              |
-| PUT, DELETE | `/api/admin/slots/:id`       | Update/remove slot with booking guards                           |
+| Method      | Path                          | Purpose                                                                                                         |
+| ----------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| GET         | `/api/form`                   | Header and ordered fields                                                                                       |
+| GET         | `/api/schedules`              | Dates, slots, capacity and registered counts                                                                    |
+| POST        | `/api/public/schedule-lookup` | `{ nim }` → `{ data: { found: false } }` or `{ data: { found: true, schedule: { date, startTime, endTime } } }` |
+| POST        | `/api/submissions`            | `{ nim, slotId, idempotencyKey, answers: { [fieldId]: value } }`                                                |
+| POST        | `/api/admin/login`            | `{ username, password }`                                                                                        |
+| POST        | `/api/admin/logout`           | Clear session                                                                                                   |
+| GET         | `/api/admin/submissions`      | Filtered and paginated responses                                                                                |
+| GET         | `/api/admin/submissions/:id`  | Full response and answer snapshots                                                                              |
+| GET, PUT    | `/api/admin/form`             | Read/replace header, name mapping and fields atomically                                                         |
+| PUT         | `/api/admin/fields`           | Replace ordered field collection atomically                                                                     |
+| GET         | `/api/admin/schedules`        | Schedule management data                                                                                        |
+| POST        | `/api/admin/dates`            | `{ date: "YYYY-MM-DD" }`                                                                                        |
+| PUT, DELETE | `/api/admin/dates/:id`        | Update/remove unbooked date                                                                                     |
+| POST        | `/api/admin/slots`            | `{ interviewDateId, startTime, endTime, capacity }`                                                             |
+| PUT, DELETE | `/api/admin/slots/:id`        | Update/remove slot with booking guards                                                                          |
 
 Times use `HH:mm`. Field types: `text`, `email`, `tel`, `number`, `textarea`, `select`. Fields contain `id`, `label`, `type`, `required`, `order`, and `options`. `nameFieldId` references a required text field. Send the complete ordered collection to add/edit/delete/reorder fields. Errors use appropriate 4xx/5xx statuses.
 
 ## Authentication and production
+
+Schedule lookup accepts trimmed NIMs containing 1–32 digits (preserving leading zeros), sends NIM in a POST body, and never caches responses. It reads only submission snapshots. A PostgreSQL counter allows 10 searches per minute per trusted IP across app instances, including invalid requests, with HTTP 429 and `Retry-After` thereafter. Expired counters are cleaned up on subsequent requests. Queries have a five-second statement timeout; the browser times out after 15 seconds.
+
+For per-IP limits, set `SCHEDULE_LOOKUP_IP_HEADER` to a header containing one client IP that your reverse proxy **overwrites**, and prevent direct access bypassing that proxy. Do not trust a client-supplied forwarding header. When unconfigured or invalid, callers share one bucket (10 searches/minute total).
 
 Admin pages and API operations enforce authentication on the server. Sessions expire after eight hours, using an HMAC-signed, HttpOnly, SameSite=Strict cookie; production adds Secure. Mutations check browser Origin against `APP_ORIGIN`. PostgreSQL limits login attempts to 10 per 15 minutes for the shared admin account; successful login clears the counter. Rotate the session secret to invalidate all sessions.
 

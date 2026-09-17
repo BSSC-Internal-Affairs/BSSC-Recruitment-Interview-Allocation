@@ -112,7 +112,7 @@ export async function submit(input: unknown): Promise<Booking> {
     const {
       rows: [saved],
     } = await db.query(
-      "INSERT INTO submissions(id,interview_slot_id,full_name,idempotency_key,request_hash,email_key,interview_date,start_time,end_time,participant_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING number::text",
+      "INSERT INTO submissions(id,interview_slot_id,full_name,idempotency_key,request_hash,email_key,interview_date,start_time,end_time,participant_id,nim) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING number::text",
       [
         id,
         data.slotId,
@@ -126,6 +126,7 @@ export async function submit(input: unknown): Promise<Booking> {
         slot.startTime,
         slot.endTime,
         participant.id,
+        data.nim,
       ],
     );
     for (const f of config.fields)

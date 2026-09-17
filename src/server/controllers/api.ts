@@ -10,6 +10,10 @@ import { getSchedules, slotValues } from "../repositories/schedules";
 import { submit, getSubmission } from "../services/submissions";
 import { listSubmissions } from "../services/responses";
 import {
+  limitScheduleLookup,
+  lookupSchedule,
+} from "../services/schedule-lookup";
+import {
   createParticipant,
   listParticipants,
   updateParticipant,
@@ -32,9 +36,10 @@ export async function handle(
       )
         throw new ApiError(403, "Request origin is not allowed.");
     }
-    const body = async () => {
+    const body = async (maxLength = 250000) => {
       const raw = await request.text();
-      if (raw.length > 250000) throw new ApiError(413, "Request is too large.");
+      if (raw.length > maxLength)
+        throw new ApiError(413, "Request is too large.");
       try {
         return JSON.parse(raw);
       } catch {
@@ -49,6 +54,10 @@ export async function handle(
     if (route === "form" && method === "GET") return ok(await getConfig());
     if (route === "schedules" && method === "GET")
       return ok(await getSchedules());
+    if (route === "public/schedule-lookup" && method === "POST") {
+      await limitScheduleLookup(request.headers);
+      return ok(await lookupSchedule(await body(1024)));
+    }
     if (route === "submissions" && method === "POST")
       return ok(await submit(await body()), 201);
     if (route === "admin/login" && method === "POST") {
@@ -226,7 +235,15 @@ export async function handle(
     } else console.error(error);
     return NextResponse.json(
       { error: { message, fields } },
-      { status, headers: { "Cache-Control": "no-store" } },
+      {
+        status,
+        headers: {
+          "Cache-Control": "no-store",
+          ...(error instanceof ApiError && error.retryAfter
+            ? { "Retry-After": String(error.retryAfter) }
+            : {}),
+        },
+      },
     );
   }
 }

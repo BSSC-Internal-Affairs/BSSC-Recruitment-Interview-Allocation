@@ -1,4 +1,38 @@
 @import "tailwindcss";
+.schedule-check-main {
+  max-width: 640px;
+  margin: 56px auto;
+}
+.schedule-check-main h1 {
+  font-size: clamp(28px, 5vw, 38px);
+  line-height: 1.15;
+  margin: 16px 0;
+}
+.schedule-check-button {
+  margin-top: 20px;
+  width: 100%;
+}
+.schedule-check-result {
+  border-top: 1px solid var(--line);
+  margin-top: 28px;
+  padding-top: 28px;
+}
+.schedule-check-result h2 {
+  margin-top: 16px;
+}
+.schedule-check-time {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.schedule-check-status,
+.schedule-check-note {
+  margin-top: 20px;
+}
+.schedule-check-note {
+  text-align: center;
+  font-size: 12px;
+}
 @theme {
   --color-lime: #bacc52;
   --color-sky: #5ea0cc;

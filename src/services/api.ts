@@ -6,6 +6,7 @@ import type {
   ResponseFilters,
   ResponseList,
   Participant,
+  ScheduleLookupResult,
 } from "@/types";
 export class RequestError extends Error {
   constructor(
@@ -20,12 +21,14 @@ export async function request<T>(
   path: string,
   method = "GET",
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<T> {
   const response = await fetch(`/api/${path}`, {
     method,
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
     cache: "no-store",
+    signal,
   });
   const result = await response.json();
   if (!response.ok)
@@ -39,6 +42,13 @@ export async function request<T>(
 export const api = {
   form: () => request<FormConfig>("form"),
   schedules: () => request<InterviewDate[]>("schedules"),
+  lookupSchedule: (nim: string) =>
+    request<ScheduleLookupResult>(
+      "public/schedule-lookup",
+      "POST",
+      { nim },
+      AbortSignal.timeout(15000),
+    ),
   submit: (body: unknown) => request<Booking>("submissions", "POST", body),
   responses: (filters: ResponseFilters = {}) => {
     const query = new URLSearchParams(

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
+import { NextRequest } from "next/server";
 // Each run gets an isolated schema in the configured PostgreSQL database.
 if (
   !["localhost", "127.0.0.1", "[::1]"].includes(
@@ -58,6 +59,11 @@ await pool.query(
 );
 const migration = await readFile("db/003_participant_nim.sql", "utf8");
 await pool.query(migration);
+const lookupMigration = await readFile("db/004_schedule_lookup.sql", "utf8");
+await pool.query(lookupMigration);
+const { lookupSchedule, limitScheduleLookup, lookupRateLimitKey } =
+  await import("../src/server/services/schedule-lookup");
+const { handle } = await import("../src/server/controllers/api");
 const nameId = randomUUID(),
   emailId = randomUUID(),
   dateId = randomUUID();
@@ -167,6 +173,106 @@ try {
       [legacySlot],
     );
     assert.equal(slot.registered_count, 2);
+  });
+  await test("lookup migration recovers linked and unlinked legacy NIMs without creating whitelist entries", async () => {
+    const before = (await listParticipants()).length;
+    await pool.query(
+      "INSERT INTO submission_answers VALUES($1,$2,'NIM','text',' 00000002 ',0)",
+      [legacyWithoutEmail, randomUUID()],
+    );
+    await pool.query(lookupMigration);
+    await pool.query(lookupMigration);
+    for (const nim of ["00000001", "00000002"]) {
+      assert.deepEqual(await lookupSchedule({ nim }), {
+        found: true,
+        schedule: { date: "2099-09-20", startTime: "08:00", endTime: "08:30" },
+      });
+    }
+    assert.equal((await listParticipants()).length, before);
+    await pool.query("UPDATE participants SET nim='00000003' WHERE id=$1", [
+      legacyWithEmail,
+    ]);
+    await pool.query(lookupMigration);
+    assert.equal((await lookupSchedule({ nim: "00000001" })).found, true);
+    assert.deepEqual(await lookupSchedule({ nim: "00000003" }), {
+      found: false,
+    });
+  });
+  await test("public endpoint exposes only schedule snapshots and treats unknown and pending NIMs alike", async () => {
+    const pending = await createParticipant({
+      fullName: "Pending",
+      nim: "00000004",
+    });
+    const call = (body: unknown) =>
+      handle(
+        new NextRequest("http://localhost:3011/api/public/schedule-lookup", {
+          method: "POST",
+          body: JSON.stringify(body),
+          headers: { "Content-Type": "application/json" },
+        }),
+        { params: Promise.resolve({ path: ["public", "schedule-lookup"] }) },
+      );
+    const found = await call({ nim: " 00000002 " });
+    assert.equal(found.status, 200);
+    assert.equal(found.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await found.json(), {
+      data: {
+        found: true,
+        schedule: { date: "2099-09-20", startTime: "08:00", endTime: "08:30" },
+      },
+    });
+    for (const nim of [pending.nim, "999999999999", "2", "0000000"]) {
+      const response = await call({ nim });
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { data: { found: false } });
+    }
+    for (const nim of ["", "12abc", "1".repeat(33), 12345, "' OR 1=1--"]) {
+      assert.equal((await call({ nim })).status, 422);
+    }
+    const limited = await call({ nim: "00000002" });
+    assert.equal(limited.status, 429);
+    assert.ok(Number(limited.headers.get("retry-after")) > 0);
+    assert.equal(limited.headers.get("cache-control"), "no-store");
+    await pool.query("DELETE FROM schedule_lookup_attempts");
+  });
+  await test("lookup limiter is atomic, isolates trusted IPs, and expires counters", async () => {
+    const previous = process.env.SCHEDULE_LOOKUP_IP_HEADER;
+    process.env.SCHEDULE_LOOKUP_IP_HEADER = "x-test-client-ip";
+    try {
+      const headers = new Headers({ "x-test-client-ip": "192.0.2.1" });
+      const outcomes = await Promise.allSettled(
+        Array.from({ length: 15 }, () => limitScheduleLookup(headers)),
+      );
+      assert.equal(outcomes.filter((r) => r.status === "fulfilled").length, 10);
+      for (const r of outcomes)
+        if (r.status === "rejected") assert.equal(r.reason.status, 429);
+      await limitScheduleLookup(
+        new Headers({ "x-test-client-ip": "192.0.2.2" }),
+      );
+      await pool.query(
+        "UPDATE schedule_lookup_attempts SET window_start=now()-interval '2 minutes'",
+      );
+      await limitScheduleLookup(headers);
+      const { rows } = await pool.query(
+        "SELECT attempts FROM schedule_lookup_attempts",
+      );
+      assert.deepEqual(rows, [{ attempts: 1 }]);
+      assert.equal(
+        lookupRateLimitKey(
+          new Headers({ "x-test-client-ip": "2001:0db8:0:0:0:0:0:1" }),
+        ),
+        lookupRateLimitKey(new Headers({ "x-test-client-ip": "2001:db8::1" })),
+      );
+      delete process.env.SCHEDULE_LOOKUP_IP_HEADER;
+      assert.equal(
+        lookupRateLimitKey(new Headers({ "x-forwarded-for": "192.0.2.1" })),
+        lookupRateLimitKey(new Headers({ "x-forwarded-for": "192.0.2.2" })),
+      );
+    } finally {
+      if (previous === undefined) delete process.env.SCHEDULE_LOOKUP_IP_HEADER;
+      else process.env.SCHEDULE_LOOKUP_IP_HEADER = previous;
+      await pool.query("DELETE FROM schedule_lookup_attempts");
+    }
   });
   await test("20 concurrent requests cannot overbook a 3-person slot", async () => {
     const id = await newSlot(3);
@@ -321,6 +427,10 @@ try {
       (e) => (e as InstanceType<typeof ApiError>).status === 422,
     );
     await submit(input);
+    assert.deepEqual(await lookupSchedule({ nim: " 00123457 " }), {
+      found: true,
+      schedule: { date: "2099-09-21", startTime: "13:30", endTime: "14:00" },
+    });
     const {
       rows: [s],
     } = await pool.query(

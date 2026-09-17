@@ -57,6 +57,12 @@ export interface Booking {
   startTime: string;
   endTime: string;
 }
+export type ScheduleLookupResult =
+  | { found: false }
+  | {
+      found: true;
+      schedule: { date: string; startTime: string; endTime: string };
+    };
 export interface Participant {
   id: string;
   fullName: string;

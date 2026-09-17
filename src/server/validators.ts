@@ -69,6 +69,7 @@ export const submissionSchema = z.object({
   idempotencyKey: z.uuid(),
   answers: z.record(z.string(), z.string().max(4000)),
 });
+export const scheduleLookupSchema = z.object({ nim: nimSchema });
 export const participantSchema = z.object({
   fullName: z.string().trim().min(1, "Full name is required.").max(200),
   nim: nimSchema,
