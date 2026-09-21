@@ -13,6 +13,7 @@ export class RequestError extends Error {
     message: string,
     public status: number,
     public fields?: Record<string, string>,
+    public code?: string,
   ) {
     super(message);
   }
@@ -36,11 +37,13 @@ export async function request<T>(
       result.error?.message || "Request failed.",
       response.status,
       result.error?.fields,
+      result.error?.code,
     );
   return result.data;
 }
 export const api = {
   form: () => request<FormConfig>("form"),
+  adminForm: () => request<FormConfig>("admin/form"),
   schedules: () => request<InterviewDate[]>("schedules"),
   lookupSchedule: (nim: string) =>
     request<ScheduleLookupResult>(

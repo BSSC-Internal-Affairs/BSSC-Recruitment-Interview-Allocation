@@ -16,6 +16,8 @@ export interface FormField {
   options: string[];
 }
 export interface FormConfig {
+  isActive: boolean;
+  closedMessage: string;
   title: string;
   description: string;
   instructions: string;

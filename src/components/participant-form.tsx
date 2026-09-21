@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Clock3,
   ShieldCheck,
+  LockKeyhole,
 } from "lucide-react";
 import { FormIntro } from "./form-intro";
 import { ScheduleSelector } from "./schedule-selector";
@@ -41,7 +42,7 @@ export function ParticipantForm() {
     error: scheduleError,
     loading,
     refresh,
-  } = useSchedules(!booking);
+  } = useSchedules(config?.isActive === true && !booking);
   const load = () =>
     api
       .form()
@@ -59,10 +60,10 @@ export function ParticipantForm() {
     isFutureSlot(selectedDate.date, selectedSlot.startTime);
   useEffect(() => {
     heading.current?.focus();
-  }, [step, booking]);
+  }, [step, booking, config?.isActive]);
   async function advance(event: React.FormEvent) {
     event.preventDefault();
-    if (!config || submitting.current) return;
+    if (!config?.isActive || submitting.current) return;
     setError("");
     const issues = validateAnswers(config.fields, answers);
     const checkedNim = nimSchema.safeParse(nim);
@@ -99,6 +100,15 @@ export function ParticipantForm() {
     } catch (e) {
       setError((e as Error).message);
       if (e instanceof RequestError) {
+        if (e.code === "FORM_CLOSED") {
+          setConfig((current) =>
+            current
+              ? { ...current, isActive: false, closedMessage: e.message }
+              : current,
+          );
+          key.current = "";
+          return;
+        }
         if (e.fields) {
           const { nim: nimError, ...fieldErrors } = e.fields;
           setErrors({
@@ -182,6 +192,21 @@ export function ParticipantForm() {
               <button className="btn secondary" onClick={() => window.print()}>
                 Save / print confirmation
               </button>
+            </div>
+          ) : config && !config.isActive ? (
+            <div className="confirmation">
+              <span className="success-icon">
+                <LockKeyhole size={38} />
+              </span>
+              <h2 ref={heading} tabIndex={-1}>
+                Interview Registration Closed
+              </h2>
+              <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                {config.closedMessage}
+              </p>
+              <Link className="btn secondary" href="/schedule-check">
+                Check your interview schedule <ArrowRight size={17} />
+              </Link>
             </div>
           ) : (
             <>

@@ -81,6 +81,8 @@ test("requires an explicitly mapped required text name field", () => {
   assert.equal(
     configSchema.safeParse({
       title: "Form",
+      isActive: true,
+      closedMessage: "Registration closed.",
       description: "",
       instructions: "",
       nameFieldId: id,
@@ -91,6 +93,8 @@ test("requires an explicitly mapped required text name field", () => {
   assert.equal(
     configSchema.safeParse({
       title: "Form",
+      isActive: true,
+      closedMessage: "Registration closed.",
       description: "",
       instructions: "",
       nameFieldId: id,
@@ -98,6 +102,32 @@ test("requires an explicitly mapped required text name field", () => {
     }).success,
     false,
   );
+});
+test("form status requires a boolean and a nonblank bounded closed message", () => {
+  const config = {
+    title: "Form",
+    description: "",
+    instructions: "",
+    nameFieldId: id,
+    fields: [field("text")],
+    isActive: false,
+    closedMessage: " Registration closed. ",
+  };
+  assert.equal(
+    configSchema.parse(config).closedMessage,
+    "Registration closed.",
+  );
+  for (const patch of [
+    { isActive: "false" },
+    { isActive: undefined },
+    { closedMessage: " " },
+    { closedMessage: "x".repeat(2001) },
+    { closedMessage: undefined },
+  ])
+    assert.equal(
+      configSchema.safeParse({ ...config, ...patch }).success,
+      false,
+    );
 });
 test("rejects invalid time ranges and capacities", () => {
   const slot = {

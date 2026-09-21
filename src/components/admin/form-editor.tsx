@@ -24,7 +24,7 @@ export function FormEditor() {
     [dirty, setDirty] = useState(false);
   const load = () =>
     api
-      .form()
+      .adminForm()
       .then(setConfig)
       .catch((e) => setError(e.message));
   useEffect(() => {
@@ -117,6 +117,41 @@ export function FormEditor() {
         </p>
       )}
       <fieldset disabled={busy} className="form-fieldset">
+        <section className="panel padded">
+          <div className="panel-section-heading">
+            <div>
+              <h2>Form status</h2>
+              <p className="muted">Changes go live when you save.</p>
+            </div>
+          </div>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              role="switch"
+              aria-label="Interview form active"
+              checked={config.isActive}
+              onChange={(e) => update({ isActive: e.target.checked })}
+            />
+            {config.isActive ? "Active" : "Closed"}
+            {dirty && " · Unsaved changes"}
+          </label>
+          <p className="muted">
+            {config.isActive
+              ? "Participants can submit the interview form."
+              : "New submissions are disabled. Schedule lookup remains available."}
+          </p>
+          <div className="field">
+            <label htmlFor="closed-message">Closed form message</label>
+            <textarea
+              id="closed-message"
+              rows={3}
+              value={config.closedMessage}
+              onChange={(e) => update({ closedMessage: e.target.value })}
+              maxLength={2000}
+              required
+            />
+          </div>
+        </section>
         <section className="panel padded">
           <div className="panel-section-heading">
             <span className="stat-icon blue-bg">

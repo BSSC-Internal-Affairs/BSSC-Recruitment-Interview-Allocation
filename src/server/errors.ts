@@ -4,6 +4,7 @@ export class ApiError extends Error {
     message: string,
     public fields?: Record<string, string>,
     public retryAfter?: number,
+    public code?: string,
   ) {
     super(message);
   }

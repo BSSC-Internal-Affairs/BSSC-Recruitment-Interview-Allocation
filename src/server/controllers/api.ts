@@ -234,7 +234,13 @@ export async function handle(
         "This record is in use or no longer exists. Refresh and try again.";
     } else console.error(error);
     return NextResponse.json(
-      { error: { message, fields } },
+      {
+        error: {
+          message,
+          fields,
+          code: error instanceof ApiError ? error.code : undefined,
+        },
+      },
       {
         status,
         headers: {

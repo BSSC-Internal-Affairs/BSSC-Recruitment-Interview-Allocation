@@ -91,6 +91,50 @@ test("public NIM booking, protected admin CRUD, response filters and responsive 
       fullPage: true,
     });
     original = (await (await admin.get("/api/admin/form")).json()).data;
+    // Form availability and the custom message persist through the existing save flow.
+    await page.goto("/admin/configuration");
+    await page.getByRole("switch", { name: "Interview form active" }).uncheck();
+    await page
+      .getByLabel("Closed form message")
+      .fill("Applications are closed for this round.");
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Your public form is up to date.",
+    );
+    await page.reload();
+    await expect(
+      page.getByRole("switch", { name: "Interview form active" }),
+    ).not.toBeChecked();
+    await expect(page.getByLabel("Closed form message")).toHaveValue(
+      "Applications are closed for this round.",
+    );
+    await page.screenshot({
+      path: ".local/admin-form-status.png",
+      fullPage: true,
+    });
+    await page.goto("/");
+    await expect(
+      page.getByRole("heading", { name: "Interview Registration Closed" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Applications are closed for this round."),
+    ).toBeVisible();
+    await expect(page.locator("form")).toHaveCount(0);
+    const closed = await request.post("/api/submissions", { data: {} });
+    expect(closed.status()).toBe(403);
+    expect((await closed.json()).error.code).toBe("FORM_CLOSED");
+    expect(
+      (await request.put("/api/admin/form", { data: original })).status(),
+    ).toBe(401);
+    await page.goto("/admin/configuration");
+    await page.getByRole("switch", { name: "Interview form active" }).check();
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Your public form is up to date.",
+    );
+    await page.goto("/");
+    await expect(page.getByLabel("NIM", { exact: false })).toBeVisible();
+    await page.goto("/admin/configuration");
     const crossOrigin = await admin.post("/api/admin/dates", {
       headers: { Origin: "https://invalid.example" },
       data: { date: "2098-09-21" },

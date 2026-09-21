@@ -14,6 +14,8 @@ export const fieldSchema = z
   });
 export const configSchema = z
   .object({
+    isActive: z.boolean(),
+    closedMessage: z.string().trim().min(1).max(2000),
     title: z.string().trim().min(1).max(200),
     description: z.string().max(2000),
     instructions: z.string().max(4000),

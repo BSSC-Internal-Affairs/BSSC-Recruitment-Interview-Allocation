@@ -8,6 +8,8 @@ For public schedule lookup, also run `db/004_schedule_lookup.sql` before deployi
 
 ## Run locally
 
+For the form open/closed control, run `db/005_form_status.sql` before deploying this version (or `npm run db:migrate` locally). Existing forms remain active. In **Form Configuration**, change the status or closed message and click **Save changes**. Closing registration does not affect schedule lookup, participant management, or existing responses.
+
 Requires Node.js 22.13+ and Docker (or an existing PostgreSQL 17 database).
 
 ```sh
@@ -36,6 +38,7 @@ This workspace was initialized with a Git-ignored `.env.local` containing random
 ## Features
 
 - Editable header, instructions, dynamic fields, required status, dropdown options, and field ordering.
+- Admin-controlled form availability and closed message, enforced on every submission by the backend.
 - Public `/schedule-check` page: exact NIM lookup with only interview date and time, no login or whitelist check.
 - Dynamic full-name and NIM question mapping; the registered name identifies each response.
 - Inline validation, disabled full/past slots, availability refresh every 10 seconds and on window focus, and printable confirmation.
@@ -75,6 +78,8 @@ Labels, field types, order, answers, and appointment details are snapshotted. Ed
 ## REST API
 
 Success: `{ "data": ... }`. Error: `{ "error": { "message": "...", "fields": { "fieldId": "..." } } }`, with optional `fields`.
+
+Both form configuration endpoints include `isActive` (boolean) and `closedMessage` (1–2,000 characters, trimmed). Include both when saving with `PUT /api/admin/form`. Closed submissions return HTTP 403 with `{ "error": { "code": "FORM_CLOSED", "message": "<configured message>" } }`, before participant or slot validation.
 
 | Method      | Path                          | Purpose                                                                                                         |
 | ----------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------- |

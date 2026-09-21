@@ -6,8 +6,19 @@ import { ApiError } from "../errors";
 import type { Booking, SubmissionDetail } from "../../types";
 const formId = (n: string) => `INT${n.padStart(3, "0")}`;
 export async function submit(input: unknown): Promise<Booking> {
-  const data = submissionSchema.parse(input);
   return transaction(async (db) => {
+    // Hold the configuration lock until commit, coordinating with admin closure.
+    await db.query("SELECT id FROM form_configuration WHERE id=1 FOR SHARE");
+    const config = await getConfig(db);
+    if (!config.isActive)
+      throw new ApiError(
+        403,
+        config.closedMessage,
+        undefined,
+        undefined,
+        "FORM_CLOSED",
+      );
+    const data = submissionSchema.parse(input);
     // Lock this identity through the entire reservation. Different request keys,
     // slots, browsers, or changed answers cannot create a second response.
     await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
@@ -65,9 +76,6 @@ export async function submit(input: unknown): Promise<Booking> {
         409,
         "You have already submitted your response. Please contact the committee for changes.",
       );
-    // Coordinate configuration edits with validation and answer snapshots.
-    await db.query("SELECT id FROM form_configuration WHERE id=1 FOR SHARE");
-    const config = await getConfig(db);
     if (!config.fields.length || !config.nameFieldId)
       throw new ApiError(409, "Registration is not open yet.");
     const errors = validateAnswers(config.fields, data.answers);

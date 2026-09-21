@@ -61,6 +61,8 @@ const migration = await readFile("db/003_participant_nim.sql", "utf8");
 await pool.query(migration);
 const lookupMigration = await readFile("db/004_schedule_lookup.sql", "utf8");
 await pool.query(lookupMigration);
+const statusMigration = await readFile("db/005_form_status.sql", "utf8");
+await pool.query(statusMigration);
 const { lookupSchedule, limitScheduleLookup, lookupRateLimitKey } =
   await import("../src/server/services/schedule-lookup");
 const { handle } = await import("../src/server/controllers/api");
@@ -71,6 +73,8 @@ await transaction((db) =>
   saveConfig(
     {
       title: "Test",
+      isActive: true,
+      closedMessage: "Registration for the interview has been closed.",
       description: "",
       instructions: "",
       nameFieldId: nameId,
@@ -124,6 +128,96 @@ const payload = async (
   };
 };
 try {
+  await test("closed status persists, blocks submissions first, and leaves lookup and admin data available", async () => {
+    const original = await getConfig();
+    assert.equal(original.isActive, true);
+    const slot = await newSlot(3, "06:00", "06:30");
+    const booked = await payload(slot);
+    const booking = await submit(booked);
+    const pending = await payload(slot);
+    const closedMessage =
+      "Interview registration is now closed.\nThank you for your interest.";
+    try {
+      await transaction((db) =>
+        saveConfig({ ...original, isActive: false, closedMessage }, db),
+      );
+      // Re-running the migration must preserve the admin's settings.
+      await pool.query(statusMigration);
+      const response = await handle(
+        new NextRequest("http://localhost/api/form"),
+        { params: Promise.resolve({ path: ["form"] }) },
+      );
+      const config = (await response.json()).data;
+      assert.equal(config.isActive, false);
+      assert.equal(config.closedMessage, closedMessage);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      // Covers valid requests, retries, unknown NIMs, and malformed submissions.
+      for (const input of [
+        pending,
+        booked,
+        { ...pending, nim: "999999999" },
+        {},
+      ]) {
+        const rejected = await handle(
+          new NextRequest("http://localhost/api/submissions", {
+            method: "POST",
+            body: JSON.stringify(input),
+          }),
+          { params: Promise.resolve({ path: ["submissions"] }) },
+        );
+        assert.equal(rejected.status, 403);
+        assert.deepEqual((await rejected.json()).error, {
+          code: "FORM_CLOSED",
+          message: closedMessage,
+        });
+      }
+      assert.equal(
+        (
+          await pool.query(
+            "SELECT registered_count FROM interview_slots WHERE id=$1",
+            [slot],
+          )
+        ).rows[0].registered_count,
+        1,
+      );
+      const roster = await listParticipants();
+      const participant = roster.find((p) => p.nim === booked.nim)!;
+      assert.equal(
+        (await getSubmission(participant.submissionId!)).formId,
+        booking.formId,
+      );
+      assert.deepEqual(await lookupSchedule({ nim: booked.nim }), {
+        found: true,
+        schedule: {
+          date: booking.date,
+          startTime: booking.startTime,
+          endTime: booking.endTime,
+        },
+      });
+      const added = await createParticipant({
+        fullName: "While closed",
+        nim: String(nextNim++),
+      });
+      await updateParticipant(added.id, {
+        fullName: "Updated while closed",
+        nim: added.nim!,
+      });
+      await deleteParticipant(added.id);
+      await transaction((db) => saveConfig({ ...original, closedMessage }, db));
+      await submit(pending);
+      assert.equal(
+        (
+          await pool.query(
+            "SELECT registered_count FROM interview_slots WHERE id=$1",
+            [slot],
+          )
+        ).rows[0].registered_count,
+        2,
+      );
+    } finally {
+      await transaction((db) => saveConfig(original, db));
+    }
+  });
   await test("migration removes onboarding fields, preserves identities, and requires admin NIM assignment", async () => {
     await pool.query(migration);
     const { rows } = await pool.query(
