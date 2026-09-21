@@ -1136,6 +1136,52 @@ tbody tr:hover {
 .date-header h2 {
   margin: 0;
 }
+.date-panel > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.date-panel > summary::-webkit-details-marker {
+  display: none;
+}
+.date-panel > summary:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -3px;
+}
+.date-header > .date-summary {
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+.date-summary p {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.date-panel[open] .date-chevron {
+  transform: rotate(180deg);
+}
+.date-chevron {
+  flex-shrink: 0;
+}
+.schedule-visible {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+.schedule-hidden {
+  background: #fff3df;
+  color: #855c24;
+}
+.date-controls,
+.date-edit-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.date-controls {
+  padding: 18px 22px 0;
+  justify-content: space-between;
+}
 .slots-list {
   padding: 0 22px;
 }

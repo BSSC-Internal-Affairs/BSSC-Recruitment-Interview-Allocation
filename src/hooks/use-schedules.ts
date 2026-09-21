@@ -2,20 +2,25 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/services/api";
 import type { InterviewDate } from "@/types";
-export function useSchedules(enabled = true) {
+export function useSchedules(
+  enabled = true,
+  scope: "public" | "admin" = "public",
+) {
   const [dates, setDates] = useState<InterviewDate[]>([]),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true);
   const refresh = useCallback(async () => {
     try {
-      setDates(await api.schedules());
+      setDates(
+        await (scope === "admin" ? api.adminSchedules() : api.schedules()),
+      );
       setError("");
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [scope]);
   useEffect(() => {
     if (!enabled) return;
     void refresh();

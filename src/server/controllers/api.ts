@@ -6,7 +6,11 @@ import { pool, transaction } from "../db";
 import { ApiError } from "../errors";
 import { login, requireAdmin, cookieName } from "../auth";
 import { getConfig, saveConfig } from "../repositories/config";
-import { getSchedules, slotValues } from "../repositories/schedules";
+import {
+  getSchedules,
+  slotValues,
+  setDateVisibility,
+} from "../repositories/schedules";
 import { submit, getSubmission } from "../services/submissions";
 import { listSubmissions } from "../services/responses";
 import {
@@ -19,7 +23,12 @@ import {
   updateParticipant,
   deleteParticipant,
 } from "../services/participants";
-import { configSchema, dateSchema, slotSchema } from "../validators";
+import {
+  configSchema,
+  dateSchema,
+  dateVisibilitySchema,
+  slotSchema,
+} from "../validators";
 export async function handle(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> },
@@ -106,7 +115,7 @@ export async function handle(
       }
     }
     if (route === "admin/schedules" && method === "GET")
-      return ok(await getSchedules());
+      return ok(await getSchedules({ includeHidden: true }));
     // Form fields are managed as one ordered collection so reordering is transactional.
     if (route === "admin/fields" && method === "PUT") {
       const fields = z
@@ -124,13 +133,19 @@ export async function handle(
       );
     }
     if (path[1] === "dates") {
+      if (path.length === 3 && method === "PATCH") {
+        const id = z.uuid().parse(path[2]);
+        const { isVisible } = dateVisibilitySchema.parse(await body());
+        await setDateVisibility(id, isVisible);
+        return ok(await getSchedules({ includeHidden: true }));
+      }
       if (path.length === 2 && method === "POST") {
         const b = dateSchema.parse(await body());
-        await pool.query("INSERT INTO interview_dates VALUES ($1,$2)", [
-          randomUUID(),
-          b.date,
-        ]);
-        return ok(await getSchedules(), 201);
+        await pool.query(
+          "INSERT INTO interview_dates(id,date) VALUES ($1,$2)",
+          [randomUUID(), b.date],
+        );
+        return ok(await getSchedules({ includeHidden: true }), 201);
       }
       if (path.length === 3 && (method === "PUT" || method === "DELETE")) {
         const id = z.uuid().parse(path[2]);
@@ -157,7 +172,7 @@ export async function handle(
             ]);
           else await db.query("DELETE FROM interview_dates WHERE id=$1", [id]);
         });
-        return ok(await getSchedules());
+        return ok(await getSchedules({ includeHidden: true }));
       }
     }
     if (path[1] === "slots") {
@@ -167,7 +182,7 @@ export async function handle(
           "INSERT INTO interview_slots(id,interview_date_id,start_time,end_time,capacity) VALUES ($1,$2,$3,$4,$5)",
           [randomUUID(), ...slotValues(b)],
         );
-        return ok(await getSchedules(), 201);
+        return ok(await getSchedules({ includeHidden: true }), 201);
       }
       if (path.length === 3 && (method === "PUT" || method === "DELETE")) {
         const id = z.uuid().parse(path[2]);
@@ -209,7 +224,7 @@ export async function handle(
             );
           }
         });
-        return ok(await getSchedules());
+        return ok(await getSchedules({ includeHidden: true }));
       }
     }
     throw new ApiError(404, "Endpoint not found.");

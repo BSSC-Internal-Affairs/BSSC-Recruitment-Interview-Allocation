@@ -8,6 +8,8 @@ For public schedule lookup, also run `db/004_schedule_lookup.sql` before deployi
 
 ## Run locally
 
+For schedule visibility, run `db/006_schedule_visibility.sql` before deployment (or `npm run db:migrate` locally). Existing and new dates default to visible. Expand a date in **Interview schedule** to toggle **Visible to participants**; changes save immediately. Hidden dates remain manageable, and existing responses and public NIM lookup are unaffected.
+
 For the form open/closed control, run `db/005_form_status.sql` before deploying this version (or `npm run db:migrate` locally). Existing forms remain active. In **Form Configuration**, change the status or closed message and click **Save changes**. Closing registration does not affect schedule lookup, participant management, or existing responses.
 
 Requires Node.js 22.13+ and Docker (or an existing PostgreSQL 17 database).
@@ -45,6 +47,7 @@ This workspace was initialized with a Git-ignored `.env.local` containing random
 - Admin participant registration by NIM, editing, safe deletion, name/NIM search, and one response per participant.
 - Protected responses with date, weekday, and time filters, sorting, pagination, search, and complete answer details.
 - Date/slot CRUD and total, registered, and remaining capacity.
+- Collapsible date cards with capacity summaries and manual date visibility for future interview batches.
 - Booked dates/times cannot be moved or deleted. Capacity cannot fall below existing registrations.
 - All appointments and timestamps use **Asia/Jakarta (WIB, UTC+7)**.
 
@@ -80,6 +83,8 @@ Labels, field types, order, answers, and appointment details are snapshotted. Ed
 Success: `{ "data": ... }`. Error: `{ "error": { "message": "...", "fields": { "fieldId": "..." } } }`, with optional `fields`.
 
 Both form configuration endpoints include `isActive` (boolean) and `closedMessage` (1–2,000 characters, trimmed). Include both when saving with `PUT /api/admin/form`. Closed submissions return HTTP 403 with `{ "error": { "code": "FORM_CLOSED", "message": "<configured message>" } }`, before participant or slot validation.
+
+`GET /api/schedules` returns only visible dates. Admin schedule reads and mutation responses include all dates with `isVisible`. Use `PATCH /api/admin/dates/:id` with `{ "isVisible": false }` or `true` to change visibility, including for booked dates. New bookings for hidden dates return HTTP 409 with error code `SCHEDULE_UNAVAILABLE`; slot capacity and existing registrations are unchanged.
 
 | Method      | Path                          | Purpose                                                                                                         |
 | ----------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------- |

@@ -152,6 +152,22 @@ test("public NIM booking, protected admin CRUD, response filters and responsive 
       await (await admin.get("/api/admin/schedules")).json()
     ).data;
     dateId = dates.find((d) => d.date === "2098-09-21")!.id;
+    expect(dates.find((d) => d.id === dateId)!.isVisible).toBe(true);
+    const dateCard = page
+      .locator("details.date-panel")
+      .filter({
+        has: page.getByRole("heading", {
+          name: "21 September 2098",
+          exact: true,
+        }),
+      });
+    await expect(dateCard.locator("summary")).toContainText(
+      "0 slots · 0/0 registered · 0 remaining",
+    );
+    await expect(
+      dateCard.getByRole("button", { name: "Add time", exact: true }),
+    ).toBeHidden();
+    await dateCard.locator("summary").click();
     await page.getByRole("button", { name: "Add time", exact: true }).click();
     await expect(page.getByText("0 registered", { exact: true })).toBeVisible();
     dates = (await (await admin.get("/api/admin/schedules")).json()).data;
@@ -223,6 +239,77 @@ test("public NIM booking, protected admin CRUD, response filters and responsive 
       page.getByRole("heading", { name: "See you at your interview!" }),
     ).toBeVisible();
     await page.screenshot({ path: ".local/confirmation.png", fullPage: true });
+    // Hiding a booked date changes new selection only, including after reload.
+    await page.goto("/admin/schedules");
+    await expect(dateCard.locator("summary")).toContainText(
+      "1 slot · 1/1 registered · 0 remaining",
+    );
+    await expect(dateCard.locator("summary")).toContainText("Visible");
+    await dateCard.locator("summary").focus();
+    await page.keyboard.press("Enter");
+    const visibility = dateCard.getByRole("switch", {
+      name: "Visible to participants: 21 September 2098",
+    });
+    await visibility.click();
+    await expect(visibility).not.toBeChecked();
+    await expect(page.getByRole("status")).toContainText("Schedule updated.");
+    await page.reload();
+    await expect(dateCard.locator("summary")).toContainText("Hidden");
+    await expect(
+      dateCard.getByRole("button", { name: "Add time", exact: true }),
+    ).toBeHidden();
+    expect(
+      (await (await request.get("/api/schedules")).json()).data.some(
+        (d: InterviewDate) => d.id === dateId,
+      ),
+    ).toBe(false);
+    expect(
+      (await (await admin.get("/api/admin/schedules")).json()).data.find(
+        (d: InterviewDate) => d.id === dateId,
+      ).isVisible,
+    ).toBe(false);
+    expect(
+      (
+        await (
+          await request.post("/api/public/schedule-lookup", { data: { nim } })
+        ).json()
+      ).data.found,
+    ).toBe(true);
+    expect(
+      (
+        await request.patch(`/api/admin/dates/${dateId}`, {
+          data: { isVisible: true },
+        })
+      ).status(),
+    ).toBe(401);
+    expect(
+      (
+        await admin.patch(`/api/admin/dates/${dateId}`, {
+          data: { isVisible: "false" },
+        })
+      ).status(),
+    ).toBe(422);
+    expect(
+      (
+        await admin.patch(`/api/admin/dates/${randomUUID()}`, {
+          data: { isVisible: false },
+        })
+      ).status(),
+    ).toBe(404);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: ".local/schedules-collapsed-mobile.png",
+      fullPage: true,
+    });
+    await dateCard.locator("summary").click();
+    await visibility.click();
+    await expect(visibility).toBeChecked();
+    await page.setViewportSize({ width: 1280, height: 900 });
     expect(
       (
         await admin.put(`/api/admin/slots/${slot.id}`, {

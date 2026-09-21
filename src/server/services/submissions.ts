@@ -100,11 +100,19 @@ export async function submit(input: unknown): Promise<Booking> {
     const {
       rows: [date],
     } = await db.query(
-      `SELECT to_char(date,'YYYY-MM-DD') AS date FROM interview_dates WHERE id=$1 AND date >= (now() AT TIME ZONE 'Asia/Jakarta')::date FOR SHARE`,
+      `SELECT to_char(date,'YYYY-MM-DD') AS date,is_visible AS "isVisible" FROM interview_dates WHERE id=$1 AND date >= (now() AT TIME ZONE 'Asia/Jakarta')::date FOR SHARE`,
       [parent.interview_date_id],
     );
     if (!date)
       throw new ApiError(409, "This interview date is no longer available.");
+    if (!date.isVisible)
+      throw new ApiError(
+        409,
+        "This interview schedule is no longer available.",
+        undefined,
+        undefined,
+        "SCHEDULE_UNAVAILABLE",
+      );
     const {
       rows: [slot],
     } = await db.query(

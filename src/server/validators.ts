@@ -51,6 +51,9 @@ export const configSchema = z
       ctx.addIssue({ code: "custom", message: "Choose a full-name field." });
   });
 export const dateSchema = z.object({ date: z.iso.date() });
+export const dateVisibilitySchema = z
+  .object({ isVisible: z.boolean() })
+  .strict();
 export const slotSchema = z
   .object({
     interviewDateId: z.uuid(),

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   configSchema,
+  dateVisibilitySchema,
   slotSchema,
   validateAnswers,
   participantSchema,
@@ -128,6 +129,18 @@ test("form status requires a boolean and a nonblank bounded closed message", () 
       configSchema.safeParse({ ...config, ...patch }).success,
       false,
     );
+});
+test("schedule visibility accepts only an explicit boolean and no unrelated edits", () => {
+  for (const isVisible of [true, false])
+    assert.ok(dateVisibilitySchema.safeParse({ isVisible }).success);
+  for (const value of [
+    {},
+    { isVisible: "false" },
+    { isVisible: null },
+    { isVisible: false, date: "2099-01-01" },
+  ]) {
+    assert.equal(dateVisibilitySchema.safeParse(value).success, false);
+  }
 });
 test("rejects invalid time ranges and capacities", () => {
   const slot = {

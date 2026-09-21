@@ -63,6 +63,13 @@ const lookupMigration = await readFile("db/004_schedule_lookup.sql", "utf8");
 await pool.query(lookupMigration);
 const statusMigration = await readFile("db/005_form_status.sql", "utf8");
 await pool.query(statusMigration);
+const visibilityMigration = await readFile(
+  "db/006_schedule_visibility.sql",
+  "utf8",
+);
+await pool.query(visibilityMigration);
+const { getSchedules, setDateVisibility } =
+  await import("../src/server/repositories/schedules");
 const { lookupSchedule, limitScheduleLookup, lookupRateLimitKey } =
   await import("../src/server/services/schedule-lookup");
 const { handle } = await import("../src/server/controllers/api");
@@ -128,6 +135,102 @@ const payload = async (
   };
 };
 try {
+  await test("hidden dates reject new bookings but preserve existing responses and lookup", async () => {
+    const before = await getSchedules();
+    assert.ok(before.every((date) => date.isVisible));
+    assert.ok(before.some((date) => date.id === legacyDate));
+    const slot = await newSlot(2, "05:00", "05:30");
+    const booked = await payload(slot),
+      pending = await payload(slot);
+    const booking = await submit(booked);
+    try {
+      await setDateVisibility(dateId, false);
+      await pool.query(visibilityMigration);
+      const publicResponse = await handle(
+        new NextRequest("http://localhost/api/schedules?includeHidden=true"),
+        { params: Promise.resolve({ path: ["schedules"] }) },
+      );
+      const publicDates = (await publicResponse.json()).data;
+      assert.ok(
+        !publicDates.some((date: { id: string }) => date.id === dateId),
+      );
+      assert.equal(publicResponse.headers.get("cache-control"), "no-store");
+      const hidden = (await getSchedules({ includeHidden: true })).find(
+        (date) => date.id === dateId,
+      )!;
+      assert.equal(hidden.isVisible, false);
+      assert.equal(hidden.slots.find((s) => s.id === slot)!.registeredCount, 1);
+      const rejected = await handle(
+        new NextRequest("http://localhost/api/submissions", {
+          method: "POST",
+          body: JSON.stringify(pending),
+        }),
+        { params: Promise.resolve({ path: ["submissions"] }) },
+      );
+      assert.equal(rejected.status, 409);
+      assert.deepEqual((await rejected.json()).error, {
+        code: "SCHEDULE_UNAVAILABLE",
+        message: "This interview schedule is no longer available.",
+      });
+      assert.equal(
+        (
+          await pool.query(
+            "SELECT registered_count FROM interview_slots WHERE id=$1",
+            [slot],
+          )
+        ).rows[0].registered_count,
+        1,
+      );
+      assert.equal(
+        (
+          await pool.query(
+            "SELECT count(*)::int AS count FROM submissions WHERE nim=$1",
+            [pending.nim],
+          )
+        ).rows[0].count,
+        0,
+      );
+      assert.deepEqual(await submit(booked), booking); // Successful retries do not create a new booking.
+      const participant = (await listParticipants()).find(
+        (p) => p.nim === booked.nim,
+      )!;
+      assert.equal(
+        (await getSubmission(participant.submissionId!)).formId,
+        booking.formId,
+      );
+      assert.ok(
+        (await listSubmissions({})).items.some(
+          (s) => s.formId === booking.formId,
+        ),
+      );
+      assert.deepEqual(await lookupSchedule({ nim: booked.nim }), {
+        found: true,
+        schedule: {
+          date: booking.date,
+          startTime: booking.startTime,
+          endTime: booking.endTime,
+        },
+      });
+      await setDateVisibility(dateId, true);
+      await submit(pending);
+      assert.ok((await getSchedules()).some((date) => date.id === dateId));
+      assert.equal(
+        (
+          await pool.query(
+            "SELECT registered_count FROM interview_slots WHERE id=$1",
+            [slot],
+          )
+        ).rows[0].registered_count,
+        2,
+      );
+    } finally {
+      await setDateVisibility(dateId, true);
+    }
+    await assert.rejects(
+      setDateVisibility(randomUUID(), false),
+      (e) => (e as InstanceType<typeof ApiError>).status === 404,
+    );
+  });
   await test("closed status persists, blocks submissions first, and leaves lookup and admin data available", async () => {
     const original = await getConfig();
     assert.equal(original.isActive, true);

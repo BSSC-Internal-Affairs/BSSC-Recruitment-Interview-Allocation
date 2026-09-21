@@ -36,6 +36,7 @@ export interface Slot {
 export interface InterviewDate {
   id: string;
   date: string;
+  isVisible: boolean;
   slots: Slot[];
 }
 export interface SubmissionSummary {

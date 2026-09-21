@@ -1,6 +1,16 @@
 "use client";
 import { useState } from "react";
-import { CalendarDays, Plus, Trash2, Check, Users, Clock3 } from "lucide-react";
+import {
+  CalendarDays,
+  Plus,
+  Trash2,
+  Check,
+  Users,
+  Clock3,
+  ChevronDown,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 import { useSchedules } from "@/hooks/use-schedules";
 import { request } from "@/services/api";
 import { formatDate } from "@/utils/format";
@@ -11,7 +21,12 @@ type Mutate = (
   body?: unknown,
 ) => Promise<boolean>;
 export function ScheduleManager() {
-  const { dates, setDates, error: loadError, loading } = useSchedules();
+  const {
+    dates,
+    setDates,
+    error: loadError,
+    loading,
+  } = useSchedules(true, "admin");
   const [newDate, setNewDate] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -134,15 +149,47 @@ function DateEditor({ date, mutate }: { date: InterviewDate; mutate: Mutate }) {
   const [editing, setEditing] = useState(false),
     [value, setValue] = useState(date.date);
   const booked = date.slots.some((s) => s.registeredCount > 0);
+  const capacity = date.slots.reduce((sum, slot) => sum + slot.capacity, 0),
+    registered = date.slots.reduce(
+      (sum, slot) => sum + slot.registeredCount,
+      0,
+    );
   return (
-    <section className="panel date-panel">
-      <div className="date-header">
-        <div>
-          <CalendarDays size={20} />
+    <details className="panel date-panel">
+      <summary className="date-header">
+        <div className="date-summary">
           <h2>{formatDate(date.date)}</h2>
-          <span className="count">{date.slots.length} times</span>
+          <p>
+            {date.slots.length} {date.slots.length === 1 ? "slot" : "slots"} ·{" "}
+            {registered}/{capacity} registered · {capacity - registered}{" "}
+            remaining
+          </p>
         </div>
-        <div>
+        <span
+          className={`badge ${date.isVisible ? "schedule-visible" : "schedule-hidden"}`}
+        >
+          {date.isVisible ? <Eye size={15} /> : <EyeOff size={15} />}
+          {date.isVisible ? "Visible" : "Hidden"}
+        </span>
+        <ChevronDown className="date-chevron" size={18} aria-hidden="true" />
+      </summary>
+      <div className="date-controls">
+        <button
+          type="button"
+          className="btn secondary"
+          role="switch"
+          aria-checked={date.isVisible}
+          aria-label={`Visible to participants: ${formatDate(date.date)}`}
+          onClick={() =>
+            void mutate(`dates/${date.id}`, "PATCH", {
+              isVisible: !date.isVisible,
+            })
+          }
+        >
+          {date.isVisible ? <Eye size={16} /> : <EyeOff size={16} />}
+          Visible to participants: {date.isVisible ? "On" : "Off"}
+        </button>
+        <div className="date-edit-actions">
           {!booked && (
             <>
               <button
@@ -194,7 +241,7 @@ function DateEditor({ date, mutate }: { date: InterviewDate; mutate: Mutate }) {
         ))}
         <SlotEditor key={`new-${date.id}`} dateId={date.id} mutate={mutate} />
       </div>
-    </section>
+    </details>
   );
 }
 function SlotEditor({

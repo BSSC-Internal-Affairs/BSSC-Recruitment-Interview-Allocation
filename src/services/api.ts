@@ -45,6 +45,7 @@ export const api = {
   form: () => request<FormConfig>("form"),
   adminForm: () => request<FormConfig>("admin/form"),
   schedules: () => request<InterviewDate[]>("schedules"),
+  adminSchedules: () => request<InterviewDate[]>("admin/schedules"),
   lookupSchedule: (nim: string) =>
     request<ScheduleLookupResult>(
       "public/schedule-lookup",
